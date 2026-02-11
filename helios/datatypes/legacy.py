@@ -77,7 +77,7 @@ class Voter(LegacyObject):
         """
         depending on whether the voter is aliased, use different fields
         """
-        if self.wrapped_obj.alias != None:
+        if self.wrapped_obj.alias is not None:
             return super(Voter, self).toDict(self.ALIASED_VOTER_FIELDS, complete = complete)
         else:
             return super(Voter,self).toDict(complete = complete)
@@ -98,7 +98,7 @@ class CastVote(LegacyObject):
         return self.instantiate(self.wrapped_obj, datatype='legacy/ShortCastVote')
 
 class Trustee(LegacyObject):
-    FIELDS = ['uuid', 'public_key', 'public_key_hash', 'pok', 'decryption_factors', 'decryption_proofs', 'email', 'name']
+    FIELDS = ['uuid', 'public_key', 'public_key_hash', 'pok', 'decryption_factors', 'decryption_proofs', 'email']
 
     STRUCTURED_FIELDS = {
         'public_key' : 'legacy/EGPublicKey',

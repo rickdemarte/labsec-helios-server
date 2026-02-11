@@ -1,31 +1,29 @@
 """
 server_ui specific views
 """
+
 import copy
 
 from django.conf import settings
-from django.core.urlresolvers import reverse
-from django.http import HttpResponseRedirect
 
-from helios.security import can_create_election
 import helios_auth.views as auth_views
-from view_utils import *
+from helios.models import Election
+from helios.security import can_create_election
+from helios_auth.security import get_user
+from . import glue
+from .view_utils import render_template
+
+glue.glue()  # actually apply glue helios.view <-> helios.signals
 
 
 def get_election():
   return None
   
 def home(request):
-  from helios.models import Election
-  import heliosinstitution
-
-  user = get_user(request)
-
-  if user and user.user_type == 'shibboleth':
-    return HttpResponseRedirect(reverse(heliosinstitution.views.home))
   # load the featured elections
   featured_elections = Election.get_featured()
   
+  user = get_user(request)
   create_p = can_create_election(request)
 
   if create_p:
@@ -38,7 +36,7 @@ def home(request):
   else:
     elections_voted = None
  
-  auth_systems = copy.copy(settings.AUTH_ENABLED_AUTH_SYSTEMS)
+  auth_systems = copy.copy(settings.AUTH_ENABLED_SYSTEMS)
   try:
     auth_systems.remove('password')
   except: pass

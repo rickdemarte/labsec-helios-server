@@ -2,33 +2,31 @@
 Unit Tests for Helios
 """
 
-import unittest, datetime, re, urllib
+import datetime
+import logging
+import re
+import uuid
+from urllib.parse import urlencode
+
 import django_webtest
-
-import models
-import datatypes
-
-from helios_auth import models as auth_models
-from views import ELGAMAL_PARAMS
-import views
-import utils
-
-from django.db import IntegrityError, transaction
-from django.test.client import Client
+from django.conf import settings
+from django.core import mail
+from django.core.files import File
 from django.test import TestCase
 from django.utils.html import escape as html_escape
 
-from django.core import mail
-from django.core.files import File
-from django.core.urlresolvers import reverse
-from django.conf import settings
-from django.core.exceptions import PermissionDenied
-from django.utils import timezone
+import helios.datatypes as datatypes
+import helios.models as models
+import helios.utils as utils
+import helios.views as views
+from helios import tasks
+from helios.crypto import electionalgs
+from helios_auth import models as auth_models
 
-import uuid
 
 class ElectionModelTests(TestCase):
     fixtures = ['users.json']
+    allow_database_queries = True
 
     def create_election(self):
         return models.Election.get_or_create(
@@ -42,7 +40,7 @@ class ElectionModelTests(TestCase):
         self.election.questions = QUESTIONS
 
     def setup_trustee(self):
-        self.election.generate_trustee(ELGAMAL_PARAMS)
+        self.election.generate_trustee(views.ELGAMAL_PARAMS)
 
     def setup_openreg(self):
         self.election.openreg=True
@@ -58,45 +56,46 @@ class ElectionModelTests(TestCase):
         self.assertTrue(self.created_p)
 
         # should have a creation time
-        self.assertNotEquals(self.election.created_at, None)
-        self.assertTrue(self.election.created_at < timezone.now())
+        self.assertNotEqual(self.election.created_at, None)
+        self.assertTrue(self.election.created_at < datetime.datetime.utcnow())
 
     def test_find_election(self):
         election = models.Election.get_by_user_as_admin(self.user)[0]
-        self.assertEquals(self.election, election)
+        self.assertEqual(self.election, election)
 
         election = models.Election.get_by_uuid(self.election.uuid)
-        self.assertEquals(self.election, election)
+        self.assertEqual(self.election, election)
 
         election = models.Election.get_by_short_name(self.election.short_name)
-        self.assertEquals(self.election, election)
+        self.assertEqual(self.election, election)
         
     def test_setup_trustee(self):
         self.setup_trustee()
-        self.assertEquals(self.election.num_trustees, 1)
+        self.assertEqual(self.election.num_trustees, 1)
 
     def test_add_voters_file(self):
         election = self.election
 
         FILE = "helios/fixtures/voter-file.csv"
-        vf = models.VoterFile.objects.create(election = election, voter_file = File(open(FILE), "voter_file.css"))
-        vf.process()
+        with open(FILE, 'r', encoding='utf-8') as f:
+            vf = models.VoterFile.objects.create(election = election, voter_file = File(f, "voter_file.css"))
+            vf.process()
 
         # make sure that we stripped things correctly
         voter = election.voter_set.get(voter_login_id = 'benadida5')
-        self.assertEquals(voter.voter_email, 'ben5@adida.net')
-        self.assertEquals(voter.voter_name, 'Ben5 Adida')
+        self.assertEqual(voter.voter_email, 'ben5@adida.net')
+        self.assertEqual(voter.voter_name, 'Ben5 Adida')
 
     def test_check_issues_before_freeze(self):
         # should be three issues: no trustees, and no questions, and no voters
         issues = self.election.issues_before_freeze
-        self.assertEquals(len(issues), 3)
+        self.assertEqual(len(issues), 3)
 
         self.setup_questions()
 
         # should be two issues: no trustees, and no voters
         issues = self.election.issues_before_freeze
-        self.assertEquals(len(issues), 2)
+        self.assertEqual(len(issues), 2)
 
         self.election.questions = None
 
@@ -104,7 +103,7 @@ class ElectionModelTests(TestCase):
 
         # should be two issues: no questions, and no voters
         issues = self.election.issues_before_freeze
-        self.assertEquals(len(issues), 2)
+        self.assertEqual(len(issues), 2)
         
         self.setup_questions()
 
@@ -112,15 +111,15 @@ class ElectionModelTests(TestCase):
         self.setup_openreg()
 
         issues = self.election.issues_before_freeze
-        self.assertEquals(len(issues), 0)
+        self.assertEqual(len(issues), 0)
         
     def test_helios_trustee(self):
-        self.election.generate_trustee(ELGAMAL_PARAMS)
+        self.election.generate_trustee(views.ELGAMAL_PARAMS)
 
         self.assertTrue(self.election.has_helios_trustee())
 
         trustee = self.election.get_helios_trustee()
-        self.assertNotEquals(trustee, None)
+        self.assertNotEqual(trustee, None)
 
     def test_log(self):
         LOGS = ["testing 1", "testing 2", "testing 3"]
@@ -131,7 +130,7 @@ class ElectionModelTests(TestCase):
         pulled_logs = [l.log for l in self.election.get_log().all()]
         pulled_logs.reverse()
 
-        self.assertEquals(LOGS,pulled_logs)
+        self.assertEqual(LOGS,pulled_logs)
 
     def test_eligibility(self):
         self.election.eligibility = [{'auth_system': self.user.user_type}]
@@ -142,7 +141,7 @@ class ElectionModelTests(TestCase):
         # what about after saving?
         self.election.save()
         e = models.Election.objects.get(uuid = self.election.uuid)
-        self.assertEquals(e.eligibility, [{'auth_system': self.user.user_type}])
+        self.assertEqual(e.eligibility, [{'auth_system': self.user.user_type}])
 
         self.election.openreg = True
 
@@ -154,6 +153,13 @@ class ElectionModelTests(TestCase):
 
     def test_facebook_eligibility(self):
         self.election.eligibility = [{'auth_system': 'facebook', 'constraint':[{'group': {'id': '123', 'name':'Fake Group'}}]}]
+
+        import settings
+        fb_enabled = 'facebook' in settings.AUTH_ENABLED_SYSTEMS
+        if not fb_enabled:
+            logging.error("'facebook' not enabled for auth, cannot its constraints.")
+            self.assertFalse(self.election.user_eligible_p(self.fb_user))
+            return
 
         # without openreg, this should be false
         self.assertFalse(self.election.user_eligible_p(self.fb_user))
@@ -171,7 +177,7 @@ class ElectionModelTests(TestCase):
         self.assertTrue(self.election.user_eligible_p(self.fb_user))
 
         # also check that eligibility_category_id does the right thing
-        self.assertEquals(self.election.eligibility_category_id('facebook'), '123')
+        self.assertEqual(self.election.eligibility_category_id('facebook'), '123')
 
     def test_freeze(self):
         # freezing without trustees and questions, no good
@@ -190,24 +196,63 @@ class ElectionModelTests(TestCase):
         self.assertTrue(len(self.election.get_log().all()) > 0)
 
     def test_archive(self):
-        self.election.archived_at = timezone.now()
+        self.election.archived_at = datetime.datetime.utcnow()
         self.assertTrue(self.election.is_archived)
 
         self.election.archived_at = None
         self.assertFalse(self.election.is_archived)
 
+    def test_soft_delete(self):
+        # Test that soft delete sets the flags correctly
+        self.assertFalse(self.election.is_deleted)
+        self.assertIsNone(self.election.deleted_at)
+
+        # Soft delete the election
+        self.election.soft_delete()
+        self.assertTrue(self.election.is_deleted)
+        self.assertIsNotNone(self.election.deleted_at)
+
+        # Verify it's logged
+        log_entries = self.election.get_log().all()
+        self.assertTrue(any('deleted' in log.log.lower() for log in log_entries))
+
+        # Test that deleted elections are excluded from default queries
+        elections = models.Election.objects.filter(uuid=self.election.uuid)
+        self.assertEqual(len(elections), 0)
+
+        # But can still be found with objects_with_deleted
+        election = models.Election.objects_with_deleted.get(uuid=self.election.uuid)
+        self.assertEqual(election, self.election)
+
+        # Test that get_by_uuid respects the default manager (excludes deleted)
+        election = models.Election.get_by_uuid(self.election.uuid)
+        self.assertIsNone(election)
+
+        # But get_by_uuid with include_deleted=True should work
+        election = models.Election.get_by_uuid(self.election.uuid, include_deleted=True)
+        self.assertEqual(election, self.election)
+
+        # Test undelete
+        self.election.undelete()
+        self.assertFalse(self.election.is_deleted)
+        self.assertIsNone(self.election.deleted_at)
+
+        # Should be visible in default queries again
+        elections = models.Election.objects.filter(uuid=self.election.uuid)
+        self.assertEqual(len(elections), 1)
+
     def test_voter_registration(self):
         # before adding a voter
         voters = models.Voter.get_by_election(self.election)
-        self.assertTrue(len(voters) == 0)
+        self.assertEqual(0, len(voters))
 
         # make sure no voter yet
         voter = models.Voter.get_by_election_and_user(self.election, self.user)
-        self.assertTrue(voter == None)
+        self.assertIsNone(voter)
 
         # make sure no voter at all across all elections
         voters = models.Voter.get_by_user(self.user)
-        self.assertTrue(len(voters) == 0)
+        self.assertEqual(0, len(voters))
 
         # register the voter
         voter = models.Voter.register_user_in_election(self.user, self.election)
@@ -215,47 +260,240 @@ class ElectionModelTests(TestCase):
         # make sure voter is there now
         voter_2 = models.Voter.get_by_election_and_user(self.election, self.user)
 
-        self.assertFalse(voter == None)
-        self.assertFalse(voter_2 == None)
-        self.assertEquals(voter, voter_2)
+        self.assertIsNotNone(voter)
+        self.assertIsNotNone(voter_2)
+        self.assertEqual(voter, voter_2)
 
         # make sure voter is there in this call too
         voters = models.Voter.get_by_user(self.user)
-        self.assertTrue(len(voters) == 1)
-        self.assertEquals(voter, voters[0])
+        self.assertEqual(1, len(voters))
+        self.assertEqual(voter, voters[0])
 
         voter_2 = models.Voter.get_by_election_and_uuid(self.election, voter.uuid)
-        self.assertEquals(voter, voter_2)
+        self.assertEqual(voter, voter_2)
 
-        self.assertEquals(voter.user, self.user)
+        self.assertEqual(voter.user, self.user)
 
+
+class AbsoluteWinnerCalculationTests(TestCase):
+    """
+    Tests for the one_question_winner method with absolute result type.
+
+    These tests verify that integer division is used correctly when calculating
+    the majority threshold. With 5 votes, a candidate needs 3 votes to win
+    (5//2 + 1 = 3). With 6 votes, a candidate needs 4 votes (6//2 + 1 = 4).
+
+    Regression tests for GitHub issue #417.
+    """
+
+    def make_absolute_question(self):
+        """Create a question with absolute result type"""
+        return {
+            "answer_urls": [None, None],
+            "answers": ["Yes", "No"],
+            "choice_type": "approval",
+            "max": 1,
+            "min": 0,
+            "question": "Test?",
+            "result_type": "absolute",
+            "short_name": "Test?",
+            "tally_type": "homomorphic"
+        }
+
+    def test_absolute_winner_with_5_votes_needs_3_to_win(self):
+        """
+        With 5 total votes, a candidate needs 3 votes to win (5//2 + 1 = 3).
+
+        This tests the integer division fix: with float division (5/2 + 1 = 3.5),
+        a candidate with 3 votes would incorrectly not win.
+        """
+        question = self.make_absolute_question()
+        # Result: Yes got 3 votes, No got 2 votes
+        result = [3, 2]
+        num_cast_votes = 5
+
+        winners = models.Election.one_question_winner(question, result, num_cast_votes)
+
+        # Candidate 0 (Yes) should win with 3 votes (absolute majority of 5)
+        self.assertEqual(winners, [0])
+
+    def test_absolute_winner_with_5_votes_2_not_enough(self):
+        """
+        With 5 total votes, 2 votes is not enough to win (needs 3).
+        """
+        question = self.make_absolute_question()
+        # Result: Yes got 2 votes, No got 3 votes (but No needs 3 to win too)
+        result = [2, 3]
+        num_cast_votes = 5
+
+        winners = models.Election.one_question_winner(question, result, num_cast_votes)
+
+        # Candidate 1 (No) wins with 3 votes
+        self.assertEqual(winners, [1])
+
+    def test_absolute_no_winner_with_5_votes_when_tie(self):
+        """
+        With 5 votes split without anyone reaching majority, no winner.
+        """
+        question = self.make_absolute_question()
+        # Result: Yes got 2 votes, No got 2 votes, 1 abstention
+        result = [2, 2]
+        num_cast_votes = 5
+
+        winners = models.Election.one_question_winner(question, result, num_cast_votes)
+
+        # No one has 3 votes, so no winner
+        self.assertEqual(winners, [])
+
+    def test_absolute_winner_with_6_votes_needs_4_to_win(self):
+        """
+        With 6 total votes, a candidate needs 4 votes to win (6//2 + 1 = 4).
+        """
+        question = self.make_absolute_question()
+        # Result: Yes got 4 votes, No got 2 votes
+        result = [4, 2]
+        num_cast_votes = 6
+
+        winners = models.Election.one_question_winner(question, result, num_cast_votes)
+
+        # Candidate 0 (Yes) should win with 4 votes
+        self.assertEqual(winners, [0])
+
+    def test_absolute_no_winner_with_6_votes_only_3(self):
+        """
+        With 6 total votes, 3 votes is not enough to win (needs 4).
+        """
+        question = self.make_absolute_question()
+        # Result: Yes got 3 votes, No got 3 votes
+        result = [3, 3]
+        num_cast_votes = 6
+
+        winners = models.Election.one_question_winner(question, result, num_cast_votes)
+
+        # Neither candidate has 4 votes, so no winner
+        self.assertEqual(winners, [])
+
+    def test_absolute_winner_with_7_votes_needs_4_to_win(self):
+        """
+        With 7 total votes, a candidate needs 4 votes to win (7//2 + 1 = 4).
+        """
+        question = self.make_absolute_question()
+        # Result: Yes got 4 votes, No got 3 votes
+        result = [4, 3]
+        num_cast_votes = 7
+
+        winners = models.Election.one_question_winner(question, result, num_cast_votes)
+
+        # Candidate 0 (Yes) should win with 4 votes
+        self.assertEqual(winners, [0])
+
+    def test_relative_winner_does_not_require_majority(self):
+        """
+        With relative result type, highest vote count wins regardless of majority.
+        """
+        question = self.make_absolute_question()
+        question['result_type'] = 'relative'
+        # Result: Yes got 2 votes, No got 1 vote
+        result = [2, 1]
+        num_cast_votes = 5
+
+        winners = models.Election.one_question_winner(question, result, num_cast_votes)
+
+        # Candidate 0 (Yes) wins even without majority in relative mode
+        self.assertEqual(winners, [0])
+
+
+class ElectionAlgsWinnerCalculationTests(TestCase):
+    """
+    Tests for the one_question_winner function in helios.crypto.electionalgs.
+
+    This is a duplicate of the function in models.py and needs the same
+    integer division fix. These tests verify both implementations are correct.
+
+    Regression tests for GitHub issue #417.
+    """
+
+    def make_absolute_question(self):
+        """Create a question with absolute result type"""
+        return {
+            "answer_urls": [None, None],
+            "answers": ["Yes", "No"],
+            "choice_type": "approval",
+            "max": 1,
+            "min": 0,
+            "question": "Test?",
+            "result_type": "absolute",
+            "short_name": "Test?",
+            "tally_type": "homomorphic"
+        }
+
+    def test_electionalgs_absolute_winner_with_5_votes_needs_3_to_win(self):
+        """
+        With 5 total votes, a candidate needs 3 votes to win (5//2 + 1 = 3).
+        Tests the electionalgs.one_question_winner function.
+        """
+        question = self.make_absolute_question()
+        result = [3, 2]
+        num_cast_votes = 5
+
+        winners = electionalgs.one_question_winner(question, result, num_cast_votes)
+
+        self.assertEqual(winners, [0])
+
+    def test_electionalgs_absolute_winner_with_7_votes_needs_4_to_win(self):
+        """
+        With 7 total votes, a candidate needs 4 votes to win (7//2 + 1 = 4).
+        Tests the electionalgs.one_question_winner function.
+        """
+        question = self.make_absolute_question()
+        result = [4, 3]
+        num_cast_votes = 7
+
+        winners = electionalgs.one_question_winner(question, result, num_cast_votes)
+
+        self.assertEqual(winners, [0])
+
+    def test_electionalgs_absolute_no_winner_when_threshold_not_met(self):
+        """
+        With 5 votes, 2 votes is not enough to win.
+        Tests the electionalgs.one_question_winner function.
+        """
+        question = self.make_absolute_question()
+        result = [2, 2]
+        num_cast_votes = 5
+
+        winners = electionalgs.one_question_winner(question, result, num_cast_votes)
+
+        self.assertEqual(winners, [])
 
 
 class VoterModelTests(TestCase):
     fixtures = ['users.json', 'election.json']
+    allow_database_queries = True
 
     def setUp(self):
         self.election = models.Election.objects.get(short_name='test')
 
     def test_create_password_voter(self):
-        v = models.Voter(uuid = str(uuid.uuid1()), election = self.election, voter_login_id = 'voter_test_1', voter_name = 'Voter Test 1', voter_email='foobar@acme.com')
+        v = models.Voter(uuid = str(uuid.uuid4()), election = self.election, voter_login_id = 'voter_test_1', voter_name = 'Voter Test 1', voter_email='foobar@acme.com')
 
         v.generate_password()
 
         v.save()
         
         # password has been generated!
-        self.assertFalse(v.voter_password == None)
+        self.assertFalse(v.voter_password is None)
 
         # can't generate passwords twice
         self.assertRaises(Exception, lambda: v.generate_password())
         
         # check that you can get at the voter user structure
-        self.assertEquals(v.get_user().user_id, v.voter_email)
+        self.assertEqual(v.get_user().user_id, v.voter_email)
 
 
 class CastVoteModelTests(TestCase):
     fixtures = ['users.json', 'election.json']
+    allow_database_queries = True
 
     def setUp(self):
         self.election = models.Election.objects.get(short_name='test')
@@ -269,10 +507,11 @@ class CastVoteModelTests(TestCase):
 
 class DatatypeTests(TestCase):
     fixtures = ['users.json', 'election.json']
+    allow_database_queries = True
 
     def setUp(self):
         self.election = models.Election.objects.all()[0]
-        self.election.generate_trustee(ELGAMAL_PARAMS)
+        self.election.generate_trustee(views.ELGAMAL_PARAMS)
 
     def test_instantiate(self):
         ld_obj = datatypes.LDObject.instantiate(self.election.get_helios_trustee(), '2011/01/Trustee')
@@ -291,7 +530,7 @@ class DatatypeTests(TestCase):
             'B' : '234324243'}
         ld_obj = datatypes.LDObject.fromDict(original_dict, type_hint = 'legacy/EGZKProofCommitment')
 
-        self.assertEquals(original_dict, ld_obj.toDict())
+        self.assertEqual(original_dict, ld_obj.toDict())
         
         
         
@@ -305,9 +544,8 @@ class DataFormatBlackboxTests(object):
         self.election = models.Election.objects.all()[0]
 
     def assertEqualsToFile(self, response, file_path):
-        expected = open(file_path)
-        self.assertEquals(response.content, expected.read())
-        expected.close()
+        with open(file_path) as expected:
+            self.assertEqual(response.content, expected.read().encode('utf-8'))
 
     def test_election(self):
         response = self.client.get("/helios/elections/%s" % self.election.uuid, follow=False)
@@ -335,6 +573,7 @@ class DataFormatBlackboxTests(object):
 
 class LegacyElectionBlackboxTests(DataFormatBlackboxTests, TestCase):
     fixtures = ['legacy-data.json']
+    allow_database_queries = True
     EXPECTED_ELECTION_FILE = 'helios/fixtures/legacy-election-expected.json'
     EXPECTED_ELECTION_METADATA_FILE = 'helios/fixtures/legacy-election-metadata-expected.json'
     EXPECTED_VOTERS_FILE = 'helios/fixtures/legacy-election-voters-expected.json'
@@ -349,45 +588,47 @@ class LegacyElectionBlackboxTests(DataFormatBlackboxTests, TestCase):
 #    EXPECTED_BALLOTS_FILE = 'helios/fixtures/v3.1-ballots-expected.json'
 
 class WebTest(django_webtest.WebTest):
-    def assertRedirects(self, response, url):
+    def assertStatusCode(self, response, status_code):
+        actual_code = response.status_code if hasattr(response, 'status_code') else response.status_int
+        if isinstance(status_code, (list, tuple)):
+            assert actual_code in status_code, "%s instad of %s" % (actual_code, status_code)
+        else:
+            assert actual_code == status_code, "%s instad of %s" % (actual_code, status_code)
+
+
+    def assertRedirects(self, response, url=None):
         """
         reimplement this in case it's a WebOp response
         and it seems to be screwing up in a few places too
         thus the localhost exception
         """
+        self.assertStatusCode(response, (301, 302))
+        location = None
         if hasattr(response, 'location'):
-            assert url in response.location
+            location = response.location
         else:
-            assert url in response._headers['location'][1]
-
-        if hasattr(response, 'status_code'):
-            assert response.status_code == 302
-        else:
-            assert response.status_int == 302
-
-        #self.assertEqual(response.status_code, 302)
-
+            location = response['location']
+        if url is not None:
+            assert url in location, location
         #return super(django_webtest.WebTest, self).assertRedirects(response, url)
-        #if hasattr(response, 'status_code') and hasattr(response, 'location'):
-
-
         #assert url in response.location, "redirected to %s instead of %s" % (response.location, url)
 
-    def assertContains(self, response, text):
-        if hasattr(response, 'status_code'):
-            assert response.status_code == 200
-#            return super(django_webtest.WebTest, self).assertContains(response, text)
-        else:
-            assert response.status_int == 200
 
-        
+    def assertContains(self, response, text):
+        self.assertStatusCode(response, 200)
+
         if hasattr(response, "testbody"):
-            assert text in response.testbody, "missing text %s" % text
+            t = response.testbody
+        elif hasattr(response, "body"):
+            t = response.body
         else:
-            if hasattr(response, "body"):
-                assert text in response.body, "missing text %s" % text        
-            else:
-                assert text in response.content, "missing text %s" % text
+            t = response.content
+
+        if isinstance(text, bytes):
+            text = text.decode()
+        if isinstance(t, bytes):
+            t = t.decode()
+        assert text in t, "missing text %s" % text
 
 
 ##
@@ -396,31 +637,23 @@ class WebTest(django_webtest.WebTest):
 
 class ElectionBlackboxTests(WebTest):
     fixtures = ['users.json', 'election.json']
+    allow_database_queries = True
 
     def setUp(self):
         self.election = models.Election.objects.all()[0]
         self.user = auth_models.User.objects.get(user_id='ben@adida.net', user_type='google')
 
-    def assertContains(self, response, text):
-        if hasattr(response, 'status_code'):
-            assert response.status_code == 200
-#            return super(django_webtest.WebTest, self).assertContains(response, text)
-        else:
-            assert response.status_int == 200
-
-        
-        if hasattr(response, "testbody"):
-            assert text in response.testbody, "missing text %s" % text
-        else:
-            if hasattr(response, "body"):
-                assert text in response.body, "missing text %s" % text        
-            else:
-                assert text in response.content, "missing text %s" % text
-
-    def setup_login(self):
+    def setup_login(self, from_scratch=False, **kwargs):
+        if from_scratch:
+            # a bogus call to set up the session
+            self.client.get("/")
         # set up the session
         session = self.client.session
-        session['user'] = {'type': self.user.user_type, 'user_id': self.user.user_id}
+        if kwargs:
+            user = auth_models.User.objects.get(**kwargs)
+        else:
+            user = self.user
+        session['user'] = {'type': user.user_type, 'user_id': user.user_id}
         session.save()
 
         # set up the app, too
@@ -435,27 +668,27 @@ class ElectionBlackboxTests(WebTest):
 
     def test_election_params(self):
         response = self.client.get("/helios/elections/params")
-        self.assertEquals(response.content, views.ELGAMAL_PARAMS_LD_OBJECT.serialize())
+        self.assertEqual(response.content, views.ELGAMAL_PARAMS_LD_OBJECT.serialize().encode('utf-8'))
 
     def test_election_404(self):
         response = self.client.get("/helios/elections/foobar")
-        self.assertEquals(response.status_code, 404)
+        self.assertStatusCode(response, 404)
 
     def test_election_bad_trustee(self):
         response = self.client.get("/helios/t/%s/foobar@bar.com/badsecret" % self.election.short_name)
-        self.assertEquals(response.status_code, 404)
+        self.assertStatusCode(response, 404)
 
     def test_get_election_shortcut(self):
         response = self.client.get("/helios/e/%s" % self.election.short_name, follow=True)
-        self.assertContains(response, self.election.description)
+        self.assertContains(response, self.election.description_bleached)
         
     def test_get_election_raw(self):
         response = self.client.get("/helios/elections/%s" % self.election.uuid, follow=False)
-        self.assertEquals(response.content, self.election.toJSON())
+        self.assertEqual(response.content, self.election.toJSON().encode('utf-8'))
     
     def test_get_election(self):
         response = self.client.get("/helios/elections/%s/view" % self.election.uuid, follow=False)
-        self.assertContains(response, self.election.description)
+        self.assertContains(response, self.election.description_bleached)
 
     def test_get_election_questions(self):
         response = self.client.get("/helios/elections/%s/questions" % self.election.uuid, follow=False)
@@ -477,7 +710,7 @@ class ElectionBlackboxTests(WebTest):
 
     def test_get_election_voters_raw(self):
         response = self.client.get("/helios/elections/%s/voters/" % self.election.uuid, follow=False)
-        self.assertEquals(len(utils.from_json(response.content)), self.election.num_voters)
+        self.assertEqual(len(response.json()), self.election.num_voters)
         
     def test_election_creation_not_logged_in(self):
         response = self.client.post("/helios/elections/new", {
@@ -492,10 +725,7 @@ class ElectionBlackboxTests(WebTest):
         self.assertRedirects(response, "/auth/?return_url=/helios/elections/new")
     
     def test_election_edit(self):
-        # a bogus call to set up the session
-        self.client.get("/")
-
-        self.setup_login()
+        self.setup_login(from_scratch=True)
         response = self.client.get("/helios/elections/%s/edit" % self.election.uuid)
         response = self.client.post("/helios/elections/%s/edit" % self.election.uuid, {
                 "short_name" : self.election.short_name + "-2",
@@ -509,16 +739,33 @@ class ElectionBlackboxTests(WebTest):
         self.assertRedirects(response, "/helios/elections/%s/view" % self.election.uuid)
 
         new_election = models.Election.objects.get(uuid = self.election.uuid)
-        self.assertEquals(new_election.short_name, self.election.short_name + "-2")
+        self.assertEqual(new_election.short_name, self.election.short_name + "-2")
 
-    def _setup_complete_election(self, election_params={}):
+    def test_get_election_stats(self):
+        self.setup_login(from_scratch=True, user_id='mccio@github.com', user_type='google')
+        response = self.client.get("/helios/stats/", follow=False)
+        self.assertStatusCode(response, 200)
+        response = self.client.get("/helios/stats/force-queue", follow=False)
+        self.assertRedirects(response, "/helios/stats/")
+        response = self.client.get("/helios/stats/elections", follow=False)
+        self.assertStatusCode(response, 200)
+        response = self.client.get("/helios/stats/problem-elections", follow=False)
+        self.assertStatusCode(response, 200)
+        response = self.client.get("/helios/stats/recent-votes", follow=False)
+        self.assertStatusCode(response, 200)
+        self.clear_login()
+        response = self.client.get("/helios/stats/", follow=False)
+        self.assertStatusCode(response, 403)
+        self.setup_login()
+        response = self.client.get("/helios/stats/", follow=False)
+        self.assertStatusCode(response, 403)
+        self.clear_login()
+
+    def _setup_complete_election(self, election_params=None):
         "do the setup part of a whole election"
 
-        # a bogus call to set up the session
-        self.client.get("/")
-
         # REPLACE with params?
-        self.setup_login()
+        self.setup_login(from_scratch=True)
 
         # create the election
         full_election_params = {
@@ -533,12 +780,15 @@ class ElectionBlackboxTests(WebTest):
         }
 
         # override with the given
-        full_election_params.update(election_params)
+        full_election_params.update(election_params or {})
 
         response = self.client.post("/helios/elections/new", full_election_params)
+        self.assertRedirects(response)
 
         # we are redirected to the election, let's extract the ID out of the URL
-        election_id = re.search('/elections/([^/]+)/', str(response['Location'])).group(1)
+        election_id = re.search('/elections/([^/]+)/', str(response['location']))
+        self.assertIsNotNone(election_id, "Election id not found in redirect: %s" % str(response['location']))
+        election_id = election_id.group(1)
 
         # helios is automatically added as a trustee
 
@@ -567,10 +817,17 @@ class ElectionBlackboxTests(WebTest):
         response = self.client.post("/helios/elections/%s/voters/upload" % election_id, {'confirm_p': "1"})
         self.assertRedirects(response, "/helios/elections/%s/voters/list" % election_id)
 
+        # Try a latin-1 encoded file
+        FILE = "helios/fixtures/voter-file-latin1.csv"
+        voters_file = open(FILE, mode='rb')
+        response = self.client.post("/helios/elections/%s/voters/upload" % election_id, {'voters_file': voters_file})
+        voters_file.close()
+        self.assertContains(response, "first few rows of this file")
+        
         # and we want to check that there are now voters
         response = self.client.get("/helios/elections/%s/voters/" % election_id)
         NUM_VOTERS = 4
-        self.assertEquals(len(utils.from_json(response.content)), NUM_VOTERS)
+        self.assertEqual(len(response.json()), NUM_VOTERS)
 
         # let's get a single voter
         single_voter = models.Election.objects.get(uuid = election_id).voter_set.all()[0]
@@ -578,7 +835,7 @@ class ElectionBlackboxTests(WebTest):
         self.assertContains(response, '"uuid": "%s"' % single_voter.uuid)
 
         response = self.client.get("/helios/elections/%s/voters/foobar" % election_id)
-        self.assertEquals(response.status_code, 404)
+        self.assertStatusCode(response, 404)
         
         # add questions
         response = self.client.post("/helios/elections/%s/save_questions" % election_id, {
@@ -603,7 +860,7 @@ class ElectionBlackboxTests(WebTest):
                 })
         self.assertRedirects(response, "/helios/elections/%s/view" % election_id)
         num_messages_after = len(mail.outbox)
-        self.assertEquals(num_messages_after - num_messages_before, NUM_VOTERS)
+        self.assertEqual(num_messages_after - num_messages_before, NUM_VOTERS)
 
         email_message = mail.outbox[num_messages_before]
         assert "your password" in email_message.subject, "bad subject in email"
@@ -614,7 +871,7 @@ class ElectionBlackboxTests(WebTest):
 
         # now log out as administrator
         self.clear_login()
-        self.assertEquals(self.client.session.has_key('user'), False)
+        self.assertEqual('user' in self.client.session, False)
 
         # return the voter username and password to vote
         return election_id, username, password
@@ -623,18 +880,20 @@ class ElectionBlackboxTests(WebTest):
         """
         check_user_logged_in looks for the "you're already logged" message
         """
-        # vote by preparing a ballot via the server-side encryption
-        response = self.app.post("/helios/elections/%s/encrypt-ballot" % election_id,
-                   params={'answers_json': utils.to_json([[1]])})
-        self.assertContains(response, "answers")
+        from helios.workflows import homomorphic
 
-        # parse it as an encrypted vote with randomness, and make sure randomness is there
-        the_ballot = utils.from_json(response.testbody)
-        assert the_ballot['answers'][0].has_key('randomness'), "no randomness"
+        # get the election and generate an encrypted vote
+        election = models.Election.objects.get(uuid=election_id)
+        answers = [[1]]
+        ev = homomorphic.EncryptedVote.fromElectionAndAnswers(election, answers)
+        the_ballot = ev.ld_object.includeRandomness().toJSONDict()
+
+        # verify randomness is present
+        assert 'randomness' in the_ballot['answers'][0], "no randomness"
         assert len(the_ballot['answers'][0]['randomness']) == 2, "not enough randomness"
-        
+
         # parse it as an encrypted vote, and re-serialize it
-        ballot = datatypes.LDObject.fromDict(utils.from_json(response.testbody), type_hint='legacy/EncryptedVote')
+        ballot = datatypes.LDObject.fromDict(the_ballot, type_hint='legacy/EncryptedVote')
         encrypted_vote = ballot.serialize()
         
         # cast the ballot
@@ -662,7 +921,7 @@ class ElectionBlackboxTests(WebTest):
             # confirm the vote, now with the actual form
             cast_form = cast_confirm_page.form
         
-            if 'status_update' in cast_form.fields.keys():
+            if 'status_update' in list(cast_form.fields.keys()):
                 cast_form['status_update'] = False
             response = cast_form.submit()
 
@@ -671,7 +930,7 @@ class ElectionBlackboxTests(WebTest):
         # at this point an email should have gone out to the user
         # at position num_messages after, since that was the len() before we cast this ballot
         email_message = mail.outbox[len(mail.outbox) - 1]
-        url = re.search('http://[^/]+(/[^ \n]*)', email_message.body).group(1)
+        url = re.search('https?://[^/]+(/[^ \n]*)', email_message.body).group(1)
 
         # check that we can get at that URL
         if not need_login:
@@ -691,7 +950,7 @@ class ElectionBlackboxTests(WebTest):
                 login_form['password'] = '  ' + password + '      '
                 login_form.submit()
             
-        response = self.app.get(url)
+        response = self.app.get(url, auto_follow=True)
         self.assertContains(response, ballot.hash)
         self.assertContains(response, html_escape(encrypted_vote))
 
@@ -712,7 +971,7 @@ class ElectionBlackboxTests(WebTest):
         self.assertRedirects(response, "/helios/elections/%s/view" % election_id)
 
         # should trigger helios decryption automatically
-        self.assertNotEquals(models.Election.objects.get(uuid=election_id).get_helios_trustee().decryption_proofs, None)
+        self.assertNotEqual(models.Election.objects.get(uuid=election_id).get_helios_trustee().decryption_proofs, None)
 
         # combine decryptions
         response = self.client.post("/helios/elections/%s/combine_decryptions" % election_id, {
@@ -724,7 +983,7 @@ class ElectionBlackboxTests(WebTest):
 
         # check that we can't get the tally yet
         response = self.client.get("/helios/elections/%s/result" % election_id)
-        self.assertEquals(response.status_code, 403)
+        self.assertStatusCode(response, 403)
 
         # release
         response = self.client.post("/helios/elections/%s/release_result" % election_id, {
@@ -733,7 +992,7 @@ class ElectionBlackboxTests(WebTest):
 
         # check that tally matches
         response = self.client.get("/helios/elections/%s/result" % election_id)
-        self.assertEquals(utils.from_json(response.content), [[0,1]])
+        self.assertEqual(response.json(), [[0,1]])
         
     def test_do_complete_election(self):
         election_id, username, password = self._setup_complete_election()
@@ -762,7 +1021,7 @@ class ElectionBlackboxTests(WebTest):
         response = self.app.get("/helios/elections/%s/view" % election_id)
 
         # ensure it redirects
-        self.assertRedirects(response, "/helios/elections/%s/password_voter_login?%s" % (election_id, urllib.urlencode({"return_url": "/helios/elections/%s/view" % election_id})))
+        self.assertRedirects(response, "/helios/elections/%s/password_voter_login?%s" % (election_id, urlencode({"return_url": "/helios/elections/%s/view" % election_id})))
 
         login_form = response.follow().form
 
@@ -777,8 +1036,7 @@ class ElectionBlackboxTests(WebTest):
 
     def test_election_voters_eligibility(self):
         # create the election
-        self.client.get("/")
-        self.setup_login()
+        self.setup_login(from_scratch=True)
         response = self.client.post("/helios/elections/new", {
                 "short_name" : "test-eligibility",
                 "name" : "Test Eligibility",
@@ -789,7 +1047,9 @@ class ElectionBlackboxTests(WebTest):
                 "private_p" : "False",
                 'csrf_token': self.client.session['csrf_token']})
 
-        election_id = re.match("(.*)/elections/(.*)/view", response['Location']).group(2)
+        election_id = re.match("(.*)/elections/(.*)/view", str(response['Location']))
+        self.assertIsNotNone(election_id, "Election id not found in redirect: %s" % str(response['Location']))
+        election_id = election_id.group(2)
 
         # update eligiblity
         response = self.client.post("/helios/elections/%s/voters/eligibility" % election_id, {
@@ -809,8 +1069,2022 @@ class ElectionBlackboxTests(WebTest):
         response = self.client.get("/helios/elections/%s/voters/list" % election_id)
         self.assertContains(response, "Only the voters listed here")
 
+    def test_multiple_voter_uploads_with_aliases(self):
+        """Test that uploading multiple voter files with aliases generates unique sequential aliases"""
+        self.setup_login(from_scratch=True)
+
+        # Create election with voter aliases enabled
+        response = self.client.post("/helios/elections/new", {
+            "short_name": "test-aliases",
+            "name": "Test Voter Aliases",
+            "description": "Testing multiple voter uploads with aliases",
+            "election_type": "referendum",
+            "use_voter_aliases": "1",
+            "use_advanced_audit_features": "1",
+            "private_p": "False",
+            "csrf_token": self.client.session["csrf_token"]
+        })
+        self.assertRedirects(response)
+
+        election_id = re.search('/elections/([^/]+)/', str(response['location'])).group(1)
+        election = models.Election.objects.get(uuid=election_id)
+        self.assertTrue(election.use_voter_aliases)
+
+        # Upload first voter file (4 voters)
+        with open("helios/fixtures/voter-file.csv") as f:
+            response = self.client.post(
+                "/helios/elections/%s/voters/upload" % election_id,
+                {"voters_file": f}
+            )
+        self.assertContains(response, "first few rows")
+
+        # Confirm first upload
+        response = self.client.post(
+            "/helios/elections/%s/voters/upload" % election_id,
+            {"confirm_p": "1"}
+        )
+        self.assertRedirects(response, "/helios/elections/%s/voters/list" % election_id)
+
+        # Verify first batch - should have 4 voters with aliases V1-V4
+        election.refresh_from_db()
+        self.assertEqual(election.voter_set.count(), 4)
+        first_aliases = sorted([v.alias for v in election.voter_set.all()])
+        self.assertEqual(first_aliases, ["V1", "V2", "V3", "V4"])
+
+        # Upload second voter file (3 more voters)
+        with open("helios/fixtures/voter-file-2.csv") as f:
+            response = self.client.post(
+                "/helios/elections/%s/voters/upload" % election_id,
+                {"voters_file": f}
+            )
+        self.assertContains(response, "first few rows")
+
+        # Confirm second upload
+        response = self.client.post(
+            "/helios/elections/%s/voters/upload" % election_id,
+            {"confirm_p": "1"}
+        )
+        self.assertRedirects(response, "/helios/elections/%s/voters/list" % election_id)
+
+        # Verify all 7 voters have unique sequential aliases V1-V7
+        election.refresh_from_db()
+        self.assertEqual(election.voter_set.count(), 7)
+        all_aliases = sorted([v.alias for v in election.voter_set.all()])
+        self.assertEqual(all_aliases, ["V1", "V2", "V3", "V4", "V5", "V6", "V7"])
+
+        # Verify the second batch got V5-V7 (continuing from first batch)
+        for voter_id in ["voter8", "voter9", "voter10"]:
+            voter = election.voter_set.get(voter_login_id=voter_id)
+            alias_num = int(voter.alias[1:])
+            self.assertGreaterEqual(alias_num, 5,
+                f"Voter {voter_id} should have alias >= V5, got {voter.alias}")
+
     def test_do_complete_election_with_trustees(self):
         """
         FIXME: do the this test
         """
         pass
+
+    def test_voters_clear(self):
+        """Test clearing all voters from an unfrozen election"""
+        self.setup_login(from_scratch=True)
+
+        # Create a new election
+        response = self.client.post("/helios/elections/new", {
+            "short_name": "test-clear-voters",
+            "name": "Test Clear Voters",
+            "description": "Testing clearing all voters",
+            "election_type": "referendum",
+            "use_voter_aliases": "0",
+            "use_advanced_audit_features": "1",
+            "private_p": "True",
+            "csrf_token": self.client.session["csrf_token"]
+        })
+        self.assertRedirects(response)
+
+        election_id = re.search('/elections/([^/]+)/', str(response['location'])).group(1)
+        election = models.Election.objects.get(uuid=election_id)
+
+        # Upload voters
+        with open("helios/fixtures/voter-file.csv") as f:
+            response = self.client.post(
+                "/helios/elections/%s/voters/upload" % election_id,
+                {"voters_file": f}
+            )
+        self.assertContains(response, "first few rows")
+
+        # Confirm upload
+        response = self.client.post(
+            "/helios/elections/%s/voters/upload" % election_id,
+            {"confirm_p": "1"}
+        )
+        self.assertRedirects(response, "/helios/elections/%s/voters/list" % election_id)
+
+        # Verify voters were added
+        election.refresh_from_db()
+        initial_voter_count = election.voter_set.count()
+        self.assertGreater(initial_voter_count, 0)
+
+        # Clear all voters
+        response = self.client.post(
+            "/helios/elections/%s/voters/clear" % election_id,
+            {"csrf_token": self.client.session["csrf_token"]}
+        )
+        self.assertRedirects(response, "/helios/elections/%s/voters/list" % election_id)
+
+        # Verify all voters were removed
+        election.refresh_from_db()
+        self.assertEqual(election.voter_set.count(), 0)
+
+        # Verify it was logged
+        logs = list(election.get_log().all())
+        self.assertTrue(any("voters cleared" in log.log.lower() for log in logs))
+
+    def test_voters_clear_requires_admin(self):
+        """Test that only admins can clear voters"""
+        # Use existing election from fixture
+        election = self.election
+
+        # Try to clear without being logged in
+        response = self.client.post(
+            "/helios/elections/%s/voters/clear" % election.uuid,
+            {"csrf_token": "fake"}
+        )
+        # Should get permission denied (403) since not authenticated
+        self.assertStatusCode(response, 403)
+
+    def test_voters_clear_blocked_when_frozen(self):
+        """Test that clearing voters is blocked when election is frozen"""
+        self.setup_login(from_scratch=True)
+
+        # Create a new election
+        response = self.client.post("/helios/elections/new", {
+            "short_name": "test-clear-frozen",
+            "name": "Test Clear Frozen",
+            "description": "Testing clearing voters on frozen election",
+            "election_type": "referendum",
+            "use_voter_aliases": "0",
+            "use_advanced_audit_features": "1",
+            "private_p": "True",
+            "csrf_token": self.client.session["csrf_token"]
+        })
+        self.assertRedirects(response)
+
+        election_id = re.search('/elections/([^/]+)/', str(response['location'])).group(1)
+        election = models.Election.objects.get(uuid=election_id)
+
+        # Add voters
+        with open("helios/fixtures/voter-file.csv") as f:
+            self.client.post(
+                "/helios/elections/%s/voters/upload" % election_id,
+                {"voters_file": f}
+            )
+        self.client.post(
+            "/helios/elections/%s/voters/upload" % election_id,
+            {"confirm_p": "1"}
+        )
+
+        # Add a question
+        self.client.post("/helios/elections/%s/save_questions" % election_id, {
+            "questions_json": '[{"answer_urls":[null,null],"answers":["Yes","No"],"choice_type":"approval","max":1,"min":0,"question":"Test?","result_type":"absolute","short_name":"test","tally_type":"homomorphic"}]',
+            "csrf_token": self.client.session["csrf_token"]
+        })
+
+        # Freeze the election
+        self.client.post("/helios/elections/%s/freeze" % election_id, {
+            "csrf_token": self.client.session["csrf_token"]
+        })
+
+        # Verify election is frozen
+        election.refresh_from_db()
+        self.assertIsNotNone(election.frozen_at)
+
+        # Try to clear voters - should fail with 403
+        response = self.client.post(
+            "/helios/elections/%s/voters/clear" % election_id,
+            {"csrf_token": self.client.session["csrf_token"]}
+        )
+        self.assertStatusCode(response, 403)
+
+
+class ElectionDeleteViewTests(WebTest):
+    fixtures = ['users.json', 'election.json']
+    allow_database_queries = True
+
+    def setUp(self):
+        self.election = models.Election.objects.all()[0]
+        self.user = auth_models.User.objects.get(user_id='ben@adida.net', user_type='google')
+
+    def setup_login(self, from_scratch=False):
+        if from_scratch:
+            self.client.get("/")
+        session = self.client.session
+        session['user'] = {'type': self.user.user_type, 'user_id': self.user.user_id}
+        session.save()
+
+    def test_delete_with_post(self):
+        """Test soft deleting an election via POST"""
+        self.setup_login(from_scratch=True)
+
+        # Verify election is not deleted initially
+        self.assertFalse(self.election.is_deleted)
+
+        # POST to delete endpoint
+        response = self.client.post(
+            "/helios/elections/%s/delete" % self.election.uuid,
+            {"delete_p": "1", "csrf_token": self.client.session.get("csrf_token", "")}
+        )
+        self.assertRedirects(response)
+
+        # Election should be soft deleted
+        election = models.Election.objects_with_deleted.get(uuid=self.election.uuid)
+        self.assertTrue(election.is_deleted)
+        self.assertIsNotNone(election.deleted_at)
+
+        # Should not appear in default queries
+        elections = models.Election.objects.filter(uuid=self.election.uuid)
+        self.assertEqual(len(elections), 0)
+
+    def test_delete_requires_admin(self):
+        """Test that only election admins can delete"""
+        # Don't log in - should get permission denied
+        response = self.client.post(
+            "/helios/elections/%s/delete" % self.election.uuid,
+            {"delete_p": "1", "csrf_token": "fake"}
+        )
+        self.assertStatusCode(response, 403)
+
+        # Election should not be deleted
+        election = models.Election.objects_with_deleted.get(uuid=self.election.uuid)
+        self.assertFalse(election.is_deleted)
+
+    def test_deleted_election_not_accessible_to_non_admins(self):
+        """Test that deleted elections return 404 for non-admin users"""
+        # Soft delete the election
+        self.election.soft_delete()
+
+        # Try to access as non-admin (not logged in)
+        response = self.client.get("/helios/elections/%s/view" % self.election.uuid)
+        self.assertStatusCode(response, 404)
+
+    def test_deleted_election_not_accessible_to_election_admins(self):
+        """Test that deleted elections return 404 even for election admins"""
+        self.setup_login(from_scratch=True)
+
+        # Soft delete the election
+        self.election.soft_delete()
+
+        # Election admin should not be able to access it
+        response = self.client.get("/helios/elections/%s/view" % self.election.uuid)
+        self.assertStatusCode(response, 404)
+
+
+class EmailOptOutTests(TestCase):
+    fixtures = ['users.json']
+    allow_database_queries = True
+
+    def setUp(self):
+        self.user = auth_models.User.objects.get(user_id='ben@adida.net', user_type='google')
+
+    def test_email_hashing(self):
+        """Test email hashing utility function"""
+        email = "test@example.com"
+        hash1 = utils.hash_email(email)
+        hash2 = utils.hash_email(email.upper())  # Should be same after normalization
+        hash3 = utils.hash_email("  " + email + "  ")  # Should be same after strip
+        
+        self.assertEqual(hash1, hash2)
+        self.assertEqual(hash1, hash3)
+        self.assertEqual(len(hash1), 64)  # SHA-256 hex length
+
+    def test_hmac_generation_and_verification(self):
+        """Test HMAC confirmation code generation and verification"""
+        email = "test@example.com"
+        action = "optout"
+        
+        code = utils.generate_email_confirmation_code(email, action)
+        self.assertIsNotNone(code)
+        self.assertEqual(len(code), 64)  # SHA-256 hex length
+        
+        # Valid verification
+        self.assertTrue(utils.verify_email_confirmation_code(email, action, code))
+        
+        # Invalid verifications
+        self.assertFalse(utils.verify_email_confirmation_code(email, "optin", code))  # Wrong action
+        self.assertFalse(utils.verify_email_confirmation_code("other@example.com", action, code))  # Wrong email
+        self.assertFalse(utils.verify_email_confirmation_code(email, action, "invalidcode"))  # Wrong code
+
+    def test_email_opt_out_model(self):
+        """Test EmailOptOut model functionality"""
+        email = "test@example.com"
+        
+        # Initially not opted out
+        self.assertFalse(models.EmailOptOut.is_opted_out(email))
+        
+        # Add opt-out
+        opt_out = models.EmailOptOut.add_opt_out(email, "test-agent", "127.0.0.1")
+        self.assertIsNotNone(opt_out)
+        
+        # Now should be opted out
+        self.assertTrue(models.EmailOptOut.is_opted_out(email))
+        
+        # Adding again should return existing record
+        opt_out2 = models.EmailOptOut.add_opt_out(email)
+        self.assertEqual(opt_out.id, opt_out2.id)
+        
+        # Remove opt-out
+        removed = models.EmailOptOut.remove_opt_out(email)
+        self.assertTrue(removed)
+        
+        # Should no longer be opted out
+        self.assertFalse(models.EmailOptOut.is_opted_out(email))
+        
+        # Removing again should return False
+        removed2 = models.EmailOptOut.remove_opt_out(email)
+        self.assertFalse(removed2)
+
+    def test_voter_registration_with_opted_out_email(self):
+        """Test that voter registration fails for opted-out emails"""
+        email = "opted-out@example.com"
+        
+        # Opt out the email
+        models.EmailOptOut.add_opt_out(email)
+        
+        # Create a user with opted-out email
+        user = auth_models.User.objects.create(
+            user_type='password',
+            user_id=email,
+            name='Test User'
+        )
+        
+        # Create an election
+        election, _ = models.Election.get_or_create(
+            short_name='test-optout',
+            name='Test Opt-Out Election',
+            description='Test Election for Opt-Out',
+            admin=self.user
+        )
+        
+        # Trying to register should raise ValueError
+        with self.assertRaises(ValueError):
+            models.Voter.register_user_in_election(user, election)
+
+    def test_opted_out_check_in_tasks(self):
+        """Test that tasks check for opted-out status correctly"""
+        email = "voter@example.com"
+        
+        # Create an election and voter  
+        election, _ = models.Election.get_or_create(
+            short_name='test-email',
+            name='Test Email Election', 
+            description='Test Election for Email',
+            admin=self.user
+        )
+        
+        voter = models.Voter.objects.create(
+            uuid=str(uuid.uuid4()),
+            election=election,
+            voter_email=email,
+            voter_name="Test Voter"
+        )
+        
+        # Test the opt-out checking logic directly
+        # Before opt-out, voter should not be skipped
+        self.assertFalse(models.EmailOptOut.is_opted_out(email))
+        
+        from unittest.mock import patch
+        
+        # Test that single_voter_email DOES send emails before opt-out
+        with patch.object(models.Voter, 'send_message') as mock_send_message:
+            
+            # Verify voter setup
+            self.assertEqual(voter.voter_email, email)
+            self.assertFalse(models.EmailOptOut.is_opted_out(email))
+            
+            # Call single_voter_email before opt-out is applied
+            result = tasks.single_voter_email.apply(args=[voter.uuid, "email/simple_subject.txt", "email/simple_body.txt", {}])
+            
+            # Debug: check if task completed successfully
+            self.assertTrue(result.successful())
+            
+            # The send_message method should have been called because voter is not opted out
+            mock_send_message.assert_called_once()
+        
+        # Now opt out the email
+        models.EmailOptOut.add_opt_out(email)
+        
+        # After opt-out, voter should be skipped
+        self.assertTrue(models.EmailOptOut.is_opted_out(email))
+        
+        # Test that single_voter_email does NOT send emails after opt-out
+        with patch.object(models.Voter, 'send_message') as mock_send_message:
+            
+            # Call single_voter_email after opt-out is applied
+            tasks.single_voter_email.apply(args=[voter.uuid, "email/simple_subject.txt", "email/simple_body.txt", {}])
+            
+            # The send_message method should not have been called because voter is opted out
+            mock_send_message.assert_not_called()
+
+    def test_email_contains_unsubscribe_link(self):
+        """Test that emails sent to voters contain unsubscribe links"""
+        from helios.view_utils import render_template_raw
+        
+        email = "voter@example.com"
+        
+        # Create an election and voter
+        election, _ = models.Election.get_or_create(
+            short_name='test-unsubscribe',
+            name='Test Unsubscribe Election',
+            description='Test Election for Unsubscribe Links',
+            admin=self.user
+        )
+        
+        voter = models.Voter.objects.create(
+            uuid=str(uuid.uuid4()),
+            election=election,
+            voter_email=email,
+            voter_name="Test Voter"
+        )
+        
+        # Generate the unsubscribe URL as the task would
+        unsubscribe_code = utils.generate_email_confirmation_code(email, 'optout')
+        
+        # Prepare template context similar to what single_voter_email does
+        template_vars = {
+            'election': election,
+            'voter': voter,
+            'election_url': 'http://example.com/election/123',
+            'election_vote_url': 'http://example.com/election/123/vote',
+            'custom_message': 'Please vote!',
+            'unsubscribe_url': f'http://example.com/optout/confirm/{email}/{unsubscribe_code}/',
+            'unsubscribe_code': unsubscribe_code
+        }
+        
+        # Render the email body template
+        body = render_template_raw(None, 'email/vote_body.txt', template_vars)
+        
+        # Verify the unsubscribe link is in the body
+        self.assertIn('To stop receiving all emails from Helios', body)
+        self.assertIn('/optout/confirm/', body)
+        self.assertIn(email, body)
+        self.assertIn(unsubscribe_code, body)
+
+
+class EmailOptOutViewTests(WebTest):
+    """Test the opt-out/opt-in web views and templates"""
+    allow_database_queries = True
+
+    def test_optout_form_renders(self):
+        """Test that opt-out form page renders correctly"""
+        response = self.client.get('/optout/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Opt Out of Helios Emails')
+        self.assertContains(response, 'Enter your email address to stop receiving all emails')
+        self.assertContains(response, '<form class="prettyform" method="POST" action="">')
+        self.assertContains(response, 'name="email"')
+
+    def test_optin_form_renders(self):
+        """Test that opt-in form page renders correctly"""
+        response = self.client.get('/optin/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Opt Back Into Helios Emails')
+        self.assertContains(response, 'Enter your email address to resume receiving emails')
+        self.assertContains(response, '<form class="prettyform" method="POST" action="">')
+        self.assertContains(response, 'name="email"')
+
+    def test_optout_request_sends_email(self):
+        """Test that opt-out request sends confirmation email"""
+        with self.settings(DEFAULT_FROM_EMAIL='test@helios.org'):
+            response = self.client.post('/optout/', {'email': 'test@example.com'})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.url, '/optout/success/')
+            
+            # Check that email was sent
+            self.assertEqual(len(mail.outbox), 1)
+            self.assertEqual(mail.outbox[0].subject, 'Confirm your opt-out from Helios emails')
+            self.assertIn('test@example.com', mail.outbox[0].to)
+            self.assertIn('/optout/confirm/test@example.com/', mail.outbox[0].body)
+
+    def test_optout_success_page_renders(self):
+        """Test that opt-out success page renders correctly"""
+        response = self.client.get('/optout/success/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Opt-Out Confirmation Sent')
+        self.assertContains(response, 'We have sent you a confirmation email')
+
+    def test_optout_confirm_with_valid_code(self):
+        """Test opt-out confirmation with valid HMAC code"""
+        # Set up session for CSRF token
+        self.client.get('/')  # Initialize session
+
+        email = 'test@example.com'
+        code = utils.generate_email_confirmation_code(email, 'optout')
+
+        # GET should show the confirmation form
+        response = self.client.get(f'/optout/confirm/{email}/{code}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Confirm Opt-Out')
+        self.assertContains(response, email)
+        self.assertContains(response, 'Please confirm that you want to opt out')
+        self.assertContains(response, '<form class="prettyform" method="POST"')
+
+        # Email should NOT be opted out yet
+        self.assertFalse(models.EmailOptOut.is_opted_out(email))
+
+        # POST should perform the opt-out
+        response = self.client.post(f'/optout/confirm/{email}/{code}/', {
+            'csrf_token': self.client.session.get('csrf_token', '')
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Successfully Opted Out')
+        self.assertContains(response, email)
+
+        # Now email should be opted out
+        self.assertTrue(models.EmailOptOut.is_opted_out(email))
+
+    def test_optout_confirm_with_invalid_code(self):
+        """Test opt-out confirmation with invalid HMAC code"""
+        email = 'test@example.com'
+        
+        response = self.client.get(f'/optout/confirm/{email}/invalidcode/')
+        self.assertEqual(response.status_code, 404)
+
+    def test_optin_request_for_opted_out_email(self):
+        """Test that opt-in request sends confirmation email for opted-out address"""
+        email = 'test@example.com'
+        models.EmailOptOut.add_opt_out(email)
+        
+        with self.settings(DEFAULT_FROM_EMAIL='test@helios.org'):
+            response = self.client.post('/optin/', {'email': email})
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.url, '/optin/success/')
+            
+            # Check that email was sent
+            self.assertEqual(len(mail.outbox), 1)
+            self.assertEqual(mail.outbox[0].subject, 'Confirm your opt-in to Helios emails')
+            self.assertIn(email, mail.outbox[0].to)
+            self.assertIn(f'/optin/confirm/{email}/', mail.outbox[0].body)
+
+    def test_optin_request_for_non_opted_out_email(self):
+        """Test that opt-in request shows message for non-opted-out address"""
+        email = 'test@example.com'
+
+        response = self.client.post('/optin/', {'email': email})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Good News!')
+        self.assertContains(response, f'The email address <strong>{email}</strong> is already receiving emails from Helios')
+
+    def test_optin_confirm_with_valid_code(self):
+        """Test opt-in confirmation with valid HMAC code"""
+        # Set up session for CSRF token
+        self.client.get('/')  # Initialize session
+
+        email = 'test@example.com'
+        models.EmailOptOut.add_opt_out(email)
+        code = utils.generate_email_confirmation_code(email, 'optin')
+
+        # GET should show the confirmation form
+        response = self.client.get(f'/optin/confirm/{email}/{code}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Confirm Opt-In')
+        self.assertContains(response, email)
+        self.assertContains(response, 'Please confirm that you want to resume receiving emails')
+        self.assertContains(response, '<form class="prettyform" method="POST"')
+
+        # Email should still be opted out
+        self.assertTrue(models.EmailOptOut.is_opted_out(email))
+
+        # POST should perform the opt-in
+        response = self.client.post(f'/optin/confirm/{email}/{code}/', {
+            'csrf_token': self.client.session.get('csrf_token', '')
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Successfully Opted Back In')
+        self.assertContains(response, email)
+
+        # Now email should no longer be opted out
+        self.assertFalse(models.EmailOptOut.is_opted_out(email))
+
+
+class VotersCSVDownloadTests(TestCase):
+    """Test voter CSV download functionality"""
+    fixtures = ['users.json']
+    
+    def setUp(self):
+        self.admin = auth_models.User.objects.get(user_id='ben@adida.net', user_type='google')
+        self.election, _ = models.Election.get_or_create(
+            short_name='test-csv',
+            name='Test CSV Election',
+            description='Test Election for CSV Download',
+            admin=self.admin)
+        
+        # Ensure the election has a UUID
+        if not self.election.uuid:
+            self.election.uuid = str(uuid.uuid4())
+            self.election.save()
+        
+        # Add some voters
+        self.voter1 = models.Voter(
+            uuid=str(uuid.uuid4()),
+            election=self.election,
+            voter_email='voter1@example.com',
+            voter_name='Voter One',
+            voter_login_id='voter1'
+        )
+        self.voter1.save()
+        
+        self.voter2 = models.Voter(
+            uuid=str(uuid.uuid4()),
+            election=self.election,
+            voter_email='voter2@example.com',
+            voter_name='Voter Two',
+            voter_login_id='voter2',
+            vote_hash='test-hash-123',
+            cast_at=datetime.datetime.now()
+        )
+        self.voter2.user = auth_models.User.objects.filter(user_type='google')[0]
+        self.voter2.save()
+        
+    def test_csv_download_as_admin(self):
+        """Test CSV download as admin shows all fields"""
+        # Set session to simulate admin login - check that admin matches election admin
+        self.assertEqual(self.election.admin, self.admin)
+        
+        # Set up the session properly
+        session = self.client.session
+        session['user'] = {
+            'type': self.admin.user_type,
+            'user_id': self.admin.user_id
+        }
+        session.save()
+        
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/voters/download-csv')
+        
+        self.assertEqual(response['Content-Type'], 'text/csv')
+        self.assertIn('attachment; filename="voters_test-csv_', response['Content-Disposition'])
+        
+        # Check CSV content
+        content = response.content.decode('utf-8')
+        lines = content.strip().splitlines()
+        headers = lines[0].split(',')
+        
+        # Admin should see all fields
+        self.assertEqual(headers, ['Login', 'Email Address', 'Name', 'Voter Type', 'Smart Ballot Tracker', 'Vote Cast At'])
+        
+        # Check we have the right number of voters
+        self.assertEqual(len(lines), 3)  # Header + 2 voters
+    
+    def test_csv_download_as_non_admin(self):
+        """Test CSV download as non-admin shows limited fields"""
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/voters/download-csv')
+        
+        self.assertEqual(response['Content-Type'], 'text/csv')
+        
+        # Check CSV content
+        content = response.content.decode('utf-8')
+        lines = content.strip().splitlines()
+        headers = lines[0].split(',')
+        
+        # Non-admin should see limited fields
+        self.assertEqual(headers, ['Name', 'Voter Type', 'Smart Ballot Tracker', 'Vote Cast At'])
+        
+    def test_csv_download_with_aliases(self):
+        """Test CSV download with voter aliases enabled"""
+        self.election.use_voter_aliases = True
+        self.election.save()
+        
+        # Set aliases
+        self.voter1.alias = 'Alias One'
+        self.voter1.save()
+        self.voter2.alias = 'Alias Two'
+        self.voter2.save()
+        
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/voters/download-csv')
+        
+        content = response.content.decode('utf-8')
+        lines = content.strip().split('\n')
+        headers = [h.strip() for h in lines[0].split(',')]
+        
+        # With aliases, should show alias instead of name
+        self.assertEqual(headers, ['Alias', 'Smart Ballot Tracker', 'Vote Cast At'])
+        
+    def test_csv_download_with_search(self):
+        """Test CSV download with search filter"""
+        # Set session to simulate admin login
+        session = self.client.session
+        session['user'] = {
+            'type': self.admin.user_type,
+            'user_id': self.admin.user_id
+        }
+        session.save()
+        
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/voters/download-csv?q=One')
+
+        content = response.content.decode('utf-8')
+        lines = content.strip().splitlines()
+        # Should only have header + 1 voter
+        self.assertEqual(len(lines), 2)
+
+
+class ElectionLogCSVDownloadTests(TestCase):
+    """Test election log CSV download functionality"""
+    fixtures = ['users.json']
+
+    def setUp(self):
+        self.admin = auth_models.User.objects.get(user_id='ben@adida.net', user_type='google')
+        self.election, _ = models.Election.get_or_create(
+            short_name='test-log-csv',
+            name='Test Log CSV Election',
+            description='Test Election for Log CSV Download',
+            admin=self.admin)
+
+        # Ensure the election has a UUID
+        if not self.election.uuid:
+            self.election.uuid = str(uuid.uuid4())
+            self.election.save()
+
+        # Add some log entries
+        self.election.append_log("Election created")
+        self.election.append_log("Voter file added")
+        self.election.append_log("Election frozen")
+
+    def test_log_csv_download_as_admin(self):
+        """Test log CSV download as admin returns correct data"""
+        session = self.client.session
+        session['user'] = {
+            'type': self.admin.user_type,
+            'user_id': self.admin.user_id
+        }
+        session.save()
+
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/log/download-csv')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'text/csv')
+        self.assertIn('attachment; filename="election_log_test-log-csv_', response['Content-Disposition'])
+
+        # Check CSV content
+        content = response.content.decode('utf-8')
+        lines = content.strip().splitlines()
+        headers = lines[0].split(',')
+
+        self.assertEqual(headers, ['Timestamp', 'Event'])
+        # Header + 3 log entries
+        self.assertEqual(len(lines), 4)
+        # Check log entries are present (in chronological order)
+        self.assertIn('Election created', lines[1])
+        self.assertIn('Voter file added', lines[2])
+        self.assertIn('Election frozen', lines[3])
+
+    def test_log_csv_download_requires_admin(self):
+        """Test log CSV download requires admin access"""
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/log/download-csv')
+        # Should return 403 Forbidden for non-admin
+        self.assertEqual(response.status_code, 403)
+
+
+class ElectionMultipleAdminsModelTests(TestCase):
+    """Test multiple administrators functionality at the model level"""
+    fixtures = ['users.json']
+    allow_database_queries = True
+
+    def setUp(self):
+        self.admin = auth_models.User.objects.get(user_id='ben@adida.net', user_type='google')
+        self.other_user = auth_models.User.objects.filter(user_type='facebook').first()
+        self.election, _ = models.Election.get_or_create(
+            short_name='test-multi-admin',
+            name='Test Multi-Admin Election',
+            description='Test Election for Multiple Admins',
+            admin=self.admin
+        )
+
+    def test_election_has_admins_field(self):
+        """Test that Election model has admins ManyToMany field"""
+        self.assertTrue(hasattr(self.election, 'admins'))
+        # Initially should be empty
+        self.assertEqual(self.election.admins.count(), 0)
+
+    def test_add_additional_admin(self):
+        """Test adding an additional administrator"""
+        self.election.admins.add(self.other_user)
+        self.assertEqual(self.election.admins.count(), 1)
+        self.assertIn(self.other_user, self.election.admins.all())
+
+    def test_remove_additional_admin(self):
+        """Test removing an additional administrator"""
+        self.election.admins.add(self.other_user)
+        self.assertEqual(self.election.admins.count(), 1)
+
+        self.election.admins.remove(self.other_user)
+        self.assertEqual(self.election.admins.count(), 0)
+
+    def test_get_by_user_as_admin_includes_creator(self):
+        """Test that get_by_user_as_admin returns elections for the creator"""
+        elections = models.Election.get_by_user_as_admin(self.admin)
+        self.assertIn(self.election, elections)
+
+    def test_get_by_user_as_admin_includes_additional_admins(self):
+        """Test that get_by_user_as_admin returns elections for additional admins"""
+        # Before adding as admin, other_user shouldn't see the election
+        elections = models.Election.get_by_user_as_admin(self.other_user)
+        self.assertNotIn(self.election, elections)
+
+        # After adding as admin, other_user should see the election
+        self.election.admins.add(self.other_user)
+        elections = models.Election.get_by_user_as_admin(self.other_user)
+        self.assertIn(self.election, elections)
+
+    def test_get_by_user_as_admin_no_duplicates(self):
+        """Test that elections aren't duplicated if user is both creator and in admins"""
+        # Add creator to admins list as well (edge case)
+        self.election.admins.add(self.admin)
+
+        elections = list(models.Election.get_by_user_as_admin(self.admin))
+        # Should only appear once due to distinct()
+        self.assertEqual(elections.count(self.election), 1)
+
+    def test_get_by_user_as_admin_excludes_deleted(self):
+        """Test that soft-deleted elections don't appear in get_by_user_as_admin"""
+        # Verify election appears initially
+        elections = models.Election.get_by_user_as_admin(self.admin)
+        self.assertIn(self.election, elections)
+
+        # Soft delete the election
+        self.election.soft_delete()
+
+        # Should no longer appear in admin list
+        elections = models.Election.get_by_user_as_admin(self.admin)
+        self.assertNotIn(self.election, elections)
+
+        # Same for additional admins
+        self.election.undelete()  # Restore first
+        self.election.admins.add(self.other_user)
+        elections = models.Election.get_by_user_as_admin(self.other_user)
+        self.assertIn(self.election, elections)
+
+        # Delete and verify other_user also doesn't see it
+        self.election.soft_delete()
+        elections = models.Election.get_by_user_as_admin(self.other_user)
+        self.assertNotIn(self.election, elections)
+
+
+class ElectionMultipleAdminsSecurityTests(TestCase):
+    """Test multiple administrators authorization checks"""
+    fixtures = ['users.json']
+    allow_database_queries = True
+
+    def setUp(self):
+        self.admin = auth_models.User.objects.get(user_id='ben@adida.net', user_type='google')
+        self.other_user = auth_models.User.objects.filter(user_type='facebook').first()
+        self.site_admin = auth_models.User.objects.filter(admin_p=True).first()
+        self.election, _ = models.Election.get_or_create(
+            short_name='test-admin-security',
+            name='Test Admin Security Election',
+            description='Test Election for Admin Security',
+            admin=self.admin
+        )
+
+    def test_creator_can_admin_election(self):
+        """Test that election creator can admin the election"""
+        from helios.security import user_can_admin_election
+        self.assertTrue(user_can_admin_election(self.admin, self.election))
+
+    def test_additional_admin_can_admin_election(self):
+        """Test that additional admin can admin the election"""
+        from helios.security import user_can_admin_election
+
+        # Before adding
+        self.assertFalse(user_can_admin_election(self.other_user, self.election))
+
+        # After adding
+        self.election.admins.add(self.other_user)
+        self.assertTrue(user_can_admin_election(self.other_user, self.election))
+
+    def test_site_admin_can_admin_any_election(self):
+        """Test that site admin can admin any election"""
+        from helios.security import user_can_admin_election
+
+        if self.site_admin:
+            self.assertTrue(user_can_admin_election(self.site_admin, self.election))
+
+    def test_random_user_cannot_admin_election(self):
+        """Test that random user cannot admin election"""
+        from helios.security import user_can_admin_election
+        self.assertFalse(user_can_admin_election(self.other_user, self.election))
+
+    def test_none_user_cannot_admin_election(self):
+        """Test that None user cannot admin election"""
+        from helios.security import user_can_admin_election
+        self.assertFalse(user_can_admin_election(None, self.election))
+
+
+class ElectionMultipleAdminsViewTests(WebTest):
+    """Test multiple administrators view functionality"""
+    fixtures = ['users.json']
+    allow_database_queries = True
+
+    def setUp(self):
+        self.admin = auth_models.User.objects.get(user_id='ben@adida.net', user_type='google')
+        self.other_user = auth_models.User.objects.filter(user_type='facebook').first()
+        self.election, _ = models.Election.get_or_create(
+            short_name='test-admin-views',
+            name='Test Admin Views Election',
+            description='Test Election for Admin Views',
+            admin=self.admin
+        )
+        if not self.election.uuid:
+            self.election.uuid = str(uuid.uuid4())
+            self.election.save()
+
+    def setup_login(self, user=None):
+        """Set up session for a user"""
+        self.client.get("/")  # Initialize session
+        session = self.client.session
+        user = user or self.admin
+        session['user'] = {'type': user.user_type, 'user_id': user.user_id}
+        session.save()
+
+    def test_admins_list_view_as_admin(self):
+        """Test admins list view accessible to admin"""
+        self.setup_login()
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/admins/')
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'Administrators')
+        self.assertContains(response, self.admin.user_id)
+
+    def test_admins_list_view_as_non_admin(self):
+        """Test admins list view not accessible to non-admin"""
+        self.setup_login(self.other_user)
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/admins/')
+        self.assertStatusCode(response, 403)
+
+    def test_admins_list_shows_additional_admins(self):
+        """Test admins list shows additional administrators"""
+        self.election.admins.add(self.other_user)
+        self.setup_login()
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/admins/')
+        self.assertContains(response, self.other_user.user_id)
+
+    def test_add_admin_form_renders(self):
+        """Test add admin form renders correctly"""
+        self.setup_login()
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/admins/add')
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'Add Administrator')
+        self.assertContains(response, 'name="email"')
+
+    def test_add_admin_success(self):
+        """Test successfully adding an administrator"""
+        self.setup_login()
+        response = self.client.post(f'/helios/elections/{self.election.uuid}/admins/add', {
+            'email': self.other_user.user_id,
+            'csrf_token': self.client.session['csrf_token']
+        })
+        self.assertRedirects(response, f'/helios/elections/{self.election.uuid}/admins/')
+
+        # Verify admin was added
+        self.assertTrue(self.election.admins.filter(pk=self.other_user.pk).exists())
+
+    def test_add_admin_nonexistent_user(self):
+        """Test adding nonexistent user as admin shows error"""
+        self.setup_login()
+        response = self.client.post(f'/helios/elections/{self.election.uuid}/admins/add', {
+            'email': 'nonexistent@example.com',
+            'csrf_token': self.client.session['csrf_token']
+        })
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'No user found')
+
+    def test_add_admin_already_creator(self):
+        """Test adding election creator as admin shows error"""
+        self.setup_login()
+        response = self.client.post(f'/helios/elections/{self.election.uuid}/admins/add', {
+            'email': self.admin.user_id,
+            'csrf_token': self.client.session['csrf_token']
+        })
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'already the election creator')
+
+    def test_add_admin_already_admin(self):
+        """Test adding existing admin shows error"""
+        self.election.admins.add(self.other_user)
+        self.setup_login()
+        response = self.client.post(f'/helios/elections/{self.election.uuid}/admins/add', {
+            'email': self.other_user.user_id,
+            'csrf_token': self.client.session['csrf_token']
+        })
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'already an administrator')
+
+    def test_add_admin_multiple_users_same_email(self):
+        """Test that multiple users with same email shows selection"""
+        # Create another user with the same user_id but different user_type
+        same_email = 'shared@example.com'
+        user1 = auth_models.User.objects.create(
+            user_type='google',
+            user_id=same_email,
+            name='Google User'
+        )
+        user2 = auth_models.User.objects.create(
+            user_type='facebook',
+            user_id=same_email,
+            name='Facebook User'
+        )
+
+        self.setup_login()
+        response = self.client.post(f'/helios/elections/{self.election.uuid}/admins/add', {
+            'email': same_email,
+            'csrf_token': self.client.session['csrf_token']
+        })
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'Multiple users were found')
+        self.assertContains(response, 'google')
+        self.assertContains(response, 'facebook')
+
+    def test_add_admin_select_from_multiple(self):
+        """Test selecting a specific user when multiple match"""
+        same_email = 'shared2@example.com'
+        user1 = auth_models.User.objects.create(
+            user_type='google',
+            user_id=same_email,
+            name='Google User 2'
+        )
+        user2 = auth_models.User.objects.create(
+            user_type='facebook',
+            user_id=same_email,
+            name='Facebook User 2'
+        )
+
+        self.setup_login()
+        # Select the google user by email + auth_type
+        response = self.client.post(f'/helios/elections/{self.election.uuid}/admins/add', {
+            'email': same_email,
+            'auth_type': 'google',
+            'csrf_token': self.client.session['csrf_token']
+        })
+        self.assertRedirects(response, f'/helios/elections/{self.election.uuid}/admins/')
+
+        # Verify only the google user was added
+        self.assertTrue(self.election.admins.filter(pk=user1.pk).exists())
+        self.assertFalse(self.election.admins.filter(pk=user2.pk).exists())
+
+    def test_remove_admin_form_renders(self):
+        """Test remove admin confirmation form renders"""
+        self.election.admins.add(self.other_user)
+        self.setup_login()
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/admins/remove?email={self.other_user.user_id}&user_type={self.other_user.user_type}')
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'Remove Administrator')
+        self.assertContains(response, self.other_user.user_id)
+
+    def test_remove_admin_success(self):
+        """Test successfully removing an administrator"""
+        self.election.admins.add(self.other_user)
+        self.setup_login()
+        response = self.client.post(f'/helios/elections/{self.election.uuid}/admins/remove', {
+            'email': self.other_user.user_id,
+            'user_type': self.other_user.user_type,
+            'csrf_token': self.client.session['csrf_token']
+        })
+        self.assertRedirects(response, f'/helios/elections/{self.election.uuid}/admins/')
+
+        # Verify admin was removed
+        self.assertFalse(self.election.admins.filter(pk=self.other_user.pk).exists())
+
+    def test_remove_creator_forbidden(self):
+        """Test that election creator cannot be removed"""
+        self.setup_login()
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/admins/remove?email={self.admin.user_id}&user_type={self.admin.user_type}')
+        self.assertStatusCode(response, 403)
+
+    def test_remove_self_forbidden(self):
+        """Test that an administrator cannot remove themselves"""
+        # Add other_user as admin
+        self.election.admins.add(self.other_user)
+        # Login as other_user
+        self.setup_login(self.other_user)
+        # Try to remove self
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/admins/remove?email={self.other_user.user_id}&user_type={self.other_user.user_type}')
+        self.assertStatusCode(response, 403)
+
+    def test_admins_list_hides_remove_link_for_self(self):
+        """Test that admins list doesn't show remove link for current user"""
+        self.election.admins.add(self.other_user)
+        self.setup_login(self.other_user)
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/admins/')
+        self.assertContains(response, '(you)')
+        # The remove link should not appear for themselves
+        self.assertNotContains(response, f'email={self.other_user.user_id}&amp;user_type={self.other_user.user_type}')
+
+    def test_additional_admin_can_access_admin_views(self):
+        """Test that additional admin can access election admin views"""
+        self.election.admins.add(self.other_user)
+        self.setup_login(self.other_user)
+
+        # Should be able to access the admins list
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/admins/')
+        self.assertStatusCode(response, 200)
+
+    def test_election_view_shows_admins_link_for_admin(self):
+        """Test that election view shows administrators link for admins"""
+        self.setup_login()
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/view')
+        self.assertContains(response, 'administrators')
+
+
+class VoterEmailCutoffTests(TestCase):
+    """Test voter email cutoff functionality"""
+    fixtures = ['users.json']
+    allow_database_queries = True
+
+    def setUp(self):
+        self.user = auth_models.User.objects.get(user_id='ben@adida.net', user_type='google')
+        self.election, _ = models.Election.get_or_create(
+            short_name='test-email-cutoff',
+            name='Test Email Cutoff Election',
+            description='Test Election for Email Cutoff',
+            admin=self.user
+        )
+
+    def test_can_send_emails_no_tally(self):
+        """Test that emails can be sent when election hasn't been tallied"""
+        can_send, reason = self.election.can_send_voter_emails()
+        self.assertTrue(can_send)
+        self.assertIsNone(reason)
+
+    def test_can_send_emails_recent_tally(self):
+        """Test that emails can be sent when tally is recent (within cutoff)"""
+        # Set tallying_finished_at to 1 week ago
+        self.election.tallying_finished_at = datetime.datetime.utcnow() - datetime.timedelta(weeks=1)
+        self.election.save()
+
+        can_send, reason = self.election.can_send_voter_emails()
+        self.assertTrue(can_send)
+        self.assertIsNone(reason)
+
+    def test_cannot_send_emails_old_tally(self):
+        """Test that emails cannot be sent when tally is beyond cutoff"""
+        # Set tallying_finished_at to 4 weeks ago (default cutoff is 3 weeks)
+        self.election.tallying_finished_at = datetime.datetime.utcnow() - datetime.timedelta(weeks=4)
+        self.election.save()
+
+        can_send, reason = self.election.can_send_voter_emails()
+        self.assertFalse(can_send)
+        self.assertIsNotNone(reason)
+        self.assertIn('3 weeks', reason)
+
+    def test_reason_message_format(self):
+        """Test that reason message is properly formatted"""
+        # Set tallying_finished_at to 4 weeks ago
+        self.election.tallying_finished_at = datetime.datetime.utcnow() - datetime.timedelta(weeks=4)
+        self.election.save()
+
+        can_send, reason = self.election.can_send_voter_emails()
+        self.assertFalse(can_send)
+        self.assertEqual(reason, "Election was tallied more than 3 weeks ago")
+
+    def test_cutoff_respects_settings(self):
+        """Test that cutoff respects HELIOS_VOTER_EMAIL_CUTOFF_WEEKS setting"""
+        # Temporarily override the setting
+        with self.settings(HELIOS_VOTER_EMAIL_CUTOFF_WEEKS=2):
+            # Set tallying_finished_at to 2.5 weeks ago
+            self.election.tallying_finished_at = datetime.datetime.utcnow() - datetime.timedelta(weeks=2, days=3)
+            self.election.save()
+
+            can_send, reason = self.election.can_send_voter_emails()
+            self.assertFalse(can_send)
+            self.assertIn('2 weeks', reason)
+
+    def test_singular_week_in_reason(self):
+        """Test that reason uses singular 'week' when cutoff is 1"""
+        with self.settings(HELIOS_VOTER_EMAIL_CUTOFF_WEEKS=1):
+            # Set tallying_finished_at to 2 weeks ago
+            self.election.tallying_finished_at = datetime.datetime.utcnow() - datetime.timedelta(weeks=2)
+            self.election.save()
+
+            can_send, reason = self.election.can_send_voter_emails()
+            self.assertFalse(can_send)
+            self.assertEqual(reason, "Election was tallied more than 1 week ago")
+
+
+class VoterEmailCutoffViewTests(WebTest):
+    """Test voter email cutoff in views"""
+    fixtures = ['users.json']
+    allow_database_queries = True
+
+    def setUp(self):
+        self.user = auth_models.User.objects.get(user_id='ben@adida.net', user_type='google')
+        self.election, _ = models.Election.get_or_create(
+            short_name='test-email-view',
+            name='Test Email View Election',
+            description='Test Election for Email Views',
+            admin=self.user
+        )
+        if not self.election.uuid:
+            self.election.uuid = str(uuid.uuid4())
+            self.election.save()
+
+        # Freeze the election so we can access email views
+        self.election.questions = [{"answer_urls": [None, None], "answers": ["Yes", "No"], "choice_type": "approval", "max": 1, "min": 0, "question": "Test?", "result_type": "absolute", "short_name": "Test?", "tally_type": "homomorphic"}]
+        self.election.generate_trustee(views.ELGAMAL_PARAMS)
+        self.election.openreg = True
+        self.election.freeze()
+
+        # Add at least one voter so email view templates can access voter_type
+        self.voter = models.Voter.objects.create(
+            uuid=str(uuid.uuid4()),
+            election=self.election,
+            voter_email='test@example.com',
+            voter_name='Test Voter'
+        )
+
+    def setup_login(self):
+        """Set up session for admin login"""
+        self.client.get("/")  # Initialize session
+        session = self.client.session
+        session['user'] = {'type': self.user.user_type, 'user_id': self.user.user_id}
+        session.save()
+
+    def test_voters_email_accessible_when_no_tally(self):
+        """Test that voters email page is accessible when election not tallied"""
+        self.setup_login()
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/voters/email')
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'Email')
+
+    def test_voters_email_accessible_when_recent_tally(self):
+        """Test that voters email page is accessible when tally is recent"""
+        self.election.tallying_finished_at = datetime.datetime.utcnow() - datetime.timedelta(weeks=1)
+        self.election.save()
+
+        self.setup_login()
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/voters/email')
+        self.assertStatusCode(response, 200)
+
+    def test_voters_email_redirects_when_old_tally(self):
+        """Test that voters email page redirects when tally is beyond cutoff"""
+        self.election.tallying_finished_at = datetime.datetime.utcnow() - datetime.timedelta(weeks=4)
+        self.election.save()
+
+        self.setup_login()
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/voters/email')
+        self.assertRedirects(response, f'/helios/elections/{self.election.uuid}/view')
+
+    def test_voters_email_post_blocked_when_old_tally(self):
+        """Test that posting to voters email is blocked when tally is old"""
+        self.election.tallying_finished_at = datetime.datetime.utcnow() - datetime.timedelta(weeks=4)
+        self.election.save()
+
+        self.setup_login()
+        response = self.client.post(f'/helios/elections/{self.election.uuid}/voters/email', {
+            'csrf_token': self.client.session['csrf_token'],
+            'subject': 'Test',
+            'body': 'Test message',
+            'send_to': 'all'
+        })
+        self.assertRedirects(response, f'/helios/elections/{self.election.uuid}/view')
+
+    def test_voters_list_shows_email_button_when_enabled(self):
+        """Test that voters list shows enabled email button when allowed"""
+        self.setup_login()
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/voters/list')
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'email voters')
+        # Should have a link, not a disabled button
+        self.assertContains(response, 'href')
+
+    def test_voters_list_shows_disabled_button_when_old_tally(self):
+        """Test that voters list shows disabled button with reason when blocked"""
+        self.election.tallying_finished_at = datetime.datetime.utcnow() - datetime.timedelta(weeks=4)
+        self.election.save()
+
+        self.setup_login()
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/voters/list')
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'email voters')
+        self.assertContains(response, 'disabled')
+        self.assertContains(response, '3 weeks ago')
+
+    def test_voters_list_passes_email_availability_to_template(self):
+        """Test that voters_list view passes email availability info to template"""
+        self.election.tallying_finished_at = datetime.datetime.utcnow() - datetime.timedelta(weeks=4)
+        self.election.save()
+
+        self.setup_login()
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/voters/list')
+
+        # Check that the response context includes the necessary variables
+        # Note: We can't directly access response.context in WebTest,
+        # but we can verify the rendered output
+        self.assertContains(response, 'disabled')
+        self.assertContains(response, 'Election was tallied more than')
+
+    def test_individual_voter_email_link_disabled_when_old_tally(self):
+        """Test that individual voter email links are disabled when blocked"""
+        # Add a voter
+        models.Voter.objects.create(
+            uuid=str(uuid.uuid4()),
+            election=self.election,
+            voter_email='test@example.com',
+            voter_name='Test Voter',
+            voter_login_id='test'
+        )
+
+        self.election.tallying_finished_at = datetime.datetime.utcnow() - datetime.timedelta(weeks=4)
+        self.election.save()
+
+        self.setup_login()
+        response = self.client.get(f'/helios/elections/{self.election.uuid}/voters/list')
+
+        # Should have disabled span instead of link
+        self.assertContains(response, 'opacity: 0.5')
+        self.assertContains(response, 'cursor: not-allowed')
+
+
+class DateTimeLocalWidgetTests(TestCase):
+    """Unit tests for DateTimeLocalWidget"""
+
+    def setUp(self):
+        from helios.widgets import DateTimeLocalWidget
+        self.widget = DateTimeLocalWidget()
+
+    def test_widget_initialization(self):
+        """Test that widget initializes with correct default attributes"""
+        self.assertEqual(self.widget.attrs['type'], 'datetime-local')
+        self.assertEqual(self.widget.attrs['class'], 'helios-datetime-input')
+        self.assertEqual(self.widget.attrs['placeholder'], 'YYYY-MM-DDTHH:MM')
+
+    def test_widget_custom_attrs(self):
+        """Test that custom attributes are merged with defaults"""
+        from helios.widgets import DateTimeLocalWidget
+        widget = DateTimeLocalWidget(attrs={'id': 'custom-id', 'class': 'custom-class'})
+        self.assertEqual(widget.attrs['id'], 'custom-id')
+        self.assertEqual(widget.attrs['class'], 'custom-class')
+        self.assertEqual(widget.attrs['type'], 'datetime-local')
+
+    def test_render_with_none_value(self):
+        """Test rendering with None value"""
+        html = self.widget.render('test_field', None)
+        self.assertIn('type="datetime-local"', html)
+        self.assertIn('name="test_field"', html)
+        self.assertIn('class="helios-datetime-input"', html)
+        self.assertIn('placeholder="YYYY-MM-DDTHH:MM"', html)
+        self.assertNotIn('value=', html)
+
+    def test_render_with_empty_string(self):
+        """Test rendering with empty string value"""
+        html = self.widget.render('test_field', '')
+        self.assertIn('type="datetime-local"', html)
+        self.assertIn('name="test_field"', html)
+        self.assertNotIn('value=', html)
+
+    def test_render_with_datetime_value(self):
+        """Test rendering with a datetime object"""
+        test_datetime = datetime.datetime(2026, 1, 15, 14, 30)
+        html = self.widget.render('test_field', test_datetime)
+        self.assertIn('type="datetime-local"', html)
+        self.assertIn('name="test_field"', html)
+        self.assertIn('value="2026-01-15T14:30"', html)
+
+    def test_render_datetime_formatting(self):
+        """Test that datetime is formatted correctly for datetime-local input"""
+        test_datetime = datetime.datetime(2026, 12, 31, 23, 59)
+        html = self.widget.render('voting_starts_at', test_datetime)
+        # Should format as YYYY-MM-DDTHH:MM
+        self.assertIn('value="2026-12-31T23:59"', html)
+        # Should not have seconds
+        self.assertNotIn('23:59:00', html)
+
+    def test_render_output_is_safe(self):
+        """Test that render output is marked as safe HTML"""
+        from django.utils.safestring import SafeString
+        html = self.widget.render('test_field', None)
+        self.assertIsInstance(html, SafeString)
+
+    def test_value_from_datadict_with_value(self):
+        """Test extracting value from form data"""
+        data = {'voting_starts_at': '2026-01-15T14:30'}
+        value = self.widget.value_from_datadict(data, {}, 'voting_starts_at')
+        self.assertEqual(value, '2026-01-15T14:30')
+
+    def test_value_from_datadict_with_empty(self):
+        """Test extracting empty value from form data"""
+        data = {'voting_starts_at': ''}
+        value = self.widget.value_from_datadict(data, {}, 'voting_starts_at')
+        self.assertEqual(value, '')
+
+    def test_value_from_datadict_with_missing_field(self):
+        """Test extracting value when field is missing from data"""
+        data = {}
+        value = self.widget.value_from_datadict(data, {}, 'voting_starts_at')
+        self.assertIsNone(value)
+
+    def test_media_class_includes_css(self):
+        """Test that Media class includes the CSS file"""
+        self.assertIn('helios/datetime-local.css', self.widget.media._css['all'])
+
+    def test_render_includes_all_required_attributes(self):
+        """Test that rendered HTML includes all required attributes"""
+        test_datetime = datetime.datetime(2026, 6, 15, 10, 0)
+        html = self.widget.render('election_date', test_datetime)
+
+        # Check all required attributes are present
+        self.assertIn('type="datetime-local"', html)
+        self.assertIn('name="election_date"', html)
+        self.assertIn('class="helios-datetime-input"', html)
+        self.assertIn('placeholder="YYYY-MM-DDTHH:MM"', html)
+        self.assertIn('value="2026-06-15T10:00"', html)
+
+    def test_render_handles_midnight(self):
+        """Test rendering datetime at midnight"""
+        test_datetime = datetime.datetime(2026, 1, 1, 0, 0)
+        html = self.widget.render('test_field', test_datetime)
+        self.assertIn('value="2026-01-01T00:00"', html)
+
+    def test_render_handles_single_digit_hours_and_minutes(self):
+        """Test that single-digit hours and minutes are zero-padded"""
+        test_datetime = datetime.datetime(2026, 1, 5, 9, 5)
+        html = self.widget.render('test_field', test_datetime)
+        # Should be zero-padded
+        self.assertIn('value="2026-01-05T09:05"', html)
+
+
+class DateTimeLocalFieldTests(TestCase):
+    """Unit tests for DateTimeLocalField"""
+
+    def setUp(self):
+        from helios.fields import DateTimeLocalField
+        self.field = DateTimeLocalField(required=False)
+
+    def test_field_uses_correct_widget(self):
+        """Test that field uses DateTimeLocalWidget"""
+        from helios.widgets import DateTimeLocalWidget
+        self.assertIsInstance(self.field.widget, DateTimeLocalWidget)
+
+    def test_field_accepts_datetime_local_format(self):
+        """Test that field accepts datetime-local format input"""
+        value = self.field.clean('2026-01-15T14:30')
+        self.assertEqual(value.year, 2026)
+        self.assertEqual(value.month, 1)
+        self.assertEqual(value.day, 15)
+        self.assertEqual(value.hour, 14)
+        self.assertEqual(value.minute, 30)
+
+    def test_field_accepts_datetime_local_format_with_seconds(self):
+        """Test that field accepts datetime-local format with seconds"""
+        value = self.field.clean('2026-01-15T14:30:45')
+        self.assertEqual(value.year, 2026)
+        self.assertEqual(value.second, 45)
+
+    def test_field_accepts_empty_value_when_not_required(self):
+        """Test that field accepts empty value when not required"""
+        value = self.field.clean('')
+        self.assertIsNone(value)
+
+    def test_field_rejects_invalid_format(self):
+        """Test that field rejects completely invalid datetime format"""
+        from django.core.exceptions import ValidationError
+        with self.assertRaises(ValidationError):
+            self.field.clean('not-a-date')
+
+    def test_field_has_correct_input_formats(self):
+        """Test that field has correct input formats defined"""
+        self.assertIn('%Y-%m-%dT%H:%M', self.field.input_formats)
+        self.assertIn('%Y-%m-%dT%H:%M:%S', self.field.input_formats)
+
+
+class PasswordResendTests(WebTest):
+    """Test password resend feature for voters"""
+    fixtures = ['users.json']
+    allow_database_queries = True
+
+    def setUp(self):
+        self.user = auth_models.User.objects.get(user_id='ben@adida.net', user_type='google')
+        self.election, _ = models.Election.get_or_create(
+            short_name='test-password-resend',
+            name='Test Password Resend Election',
+            description='Test Election for Password Resend',
+            admin=self.user
+        )
+        if not self.election.uuid:
+            self.election.uuid = str(uuid.uuid4())
+            self.election.save()
+
+        # Freeze the election so voters can use password resend
+        self.election.questions = [{"answer_urls": [None, None], "answers": ["Yes", "No"], "choice_type": "approval", "max": 1, "min": 0, "question": "Test?", "result_type": "absolute", "short_name": "Test?", "tally_type": "homomorphic"}]
+        self.election.generate_trustee(views.ELGAMAL_PARAMS)
+        self.election.openreg = True
+        self.election.freeze()
+
+        # Create a password voter
+        self.voter = models.Voter.objects.create(
+            uuid=str(uuid.uuid4()),
+            election=self.election,
+            voter_email='voter@example.com',
+            voter_name='Test Voter',
+            voter_login_id='testvoter'
+        )
+        self.voter.generate_password()
+        self.voter.save()
+
+    def get_resend_url(self):
+        return f'/helios/elections/{self.election.uuid}/password_voter_resend'
+
+    def test_get_shows_form(self):
+        """Test that GET request shows the resend form"""
+        response = self.client.get(self.get_resend_url())
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'Voter ID')
+        self.assertContains(response, 'Resend')
+
+    def test_post_valid_voter_shows_success_and_sends_email(self):
+        """Test that POST with valid voter ID shows success message and sends email"""
+        # First get to set up session/csrf
+        self.client.get(self.get_resend_url())
+        csrf_token = self.client.session.get('csrf_token', '')
+
+        num_messages_before = len(mail.outbox)
+
+        response = self.client.post(self.get_resend_url(), {
+            'csrf_token': csrf_token,
+            'voter_id': 'testvoter'
+        })
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'email with your voting credentials has been sent')
+
+        # Check that an email was queued
+        self.assertEqual(len(mail.outbox), num_messages_before + 1)
+        email_message = mail.outbox[-1]
+        # Email 'to' field may include name like '"Test Voter" <voter@example.com>'
+        self.assertTrue(any('voter@example.com' in recipient for recipient in email_message.to))
+        self.assertIn('credentials', email_message.subject.lower())
+        self.assertIn(self.voter.voter_login_id, email_message.body)
+        self.assertIn(self.voter.voter_password, email_message.body)
+
+    def test_post_invalid_voter_still_shows_success_but_no_email(self):
+        """Test that POST with invalid voter ID still shows success but sends no email"""
+        self.client.get(self.get_resend_url())
+        csrf_token = self.client.session.get('csrf_token', '')
+
+        num_messages_before = len(mail.outbox)
+
+        response = self.client.post(self.get_resend_url(), {
+            'csrf_token': csrf_token,
+            'voter_id': 'nonexistent_voter'
+        })
+        self.assertStatusCode(response, 200)
+        # Should still show success message to prevent enumeration attacks
+        self.assertContains(response, 'email with your voting credentials has been sent')
+
+        # But no email should have been sent
+        self.assertEqual(len(mail.outbox), num_messages_before)
+
+    def test_post_empty_voter_id_shows_error(self):
+        """Test that POST with empty voter ID shows error"""
+        self.client.get(self.get_resend_url())
+        csrf_token = self.client.session.get('csrf_token', '')
+
+        response = self.client.post(self.get_resend_url(), {
+            'csrf_token': csrf_token,
+            'voter_id': ''
+        })
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'valid voter ID')
+
+    def test_resend_blocked_when_election_too_old(self):
+        """Test that password resend is blocked when election tally is too old"""
+        self.election.tallying_finished_at = datetime.datetime.utcnow() - datetime.timedelta(weeks=4)
+        self.election.save()
+
+        response = self.client.get(self.get_resend_url())
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'weeks ago')
+
+    def test_link_appears_on_cast_confirm_page(self):
+        """Test that resend link appears on cast confirm password template"""
+        # We need to check the template content includes the resend link
+        # This is more of an integration test - check the template file
+        from django.template.loader import get_template
+        template = get_template('_castconfirm_password.html')
+        template_source = template.template.source
+        self.assertIn('password-voter-resend', template_source)
+        self.assertIn('target="_blank"', template_source)
+
+    def test_voter_without_email_does_not_send_email(self):
+        """Test that voter without email address doesn't cause an error and no email is sent"""
+        # Create voter without email
+        voter_no_email = models.Voter.objects.create(
+            uuid=str(uuid.uuid4()),
+            election=self.election,
+            voter_name='No Email Voter',
+            voter_login_id='noemailvoter'
+        )
+        voter_no_email.generate_password()
+        voter_no_email.save()
+
+        self.client.get(self.get_resend_url())
+        csrf_token = self.client.session.get('csrf_token', '')
+
+        num_messages_before = len(mail.outbox)
+
+        response = self.client.post(self.get_resend_url(), {
+            'csrf_token': csrf_token,
+            'voter_id': 'noemailvoter'
+        })
+        # Should still show success (doesn't reveal that email is missing)
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'email with your voting credentials has been sent')
+
+        # But no email should have been sent since voter has no email
+        self.assertEqual(len(mail.outbox), num_messages_before)
+
+
+class PendingVotesTests(TestCase):
+    """Tests for pending votes detection and tabulation blocking"""
+    fixtures = ['users.json']
+    allow_database_queries = True
+
+    def setUp(self):
+        self.user = auth_models.User.objects.get(user_id='ben@adida.net', user_type='google')
+        self.election, _ = models.Election.get_or_create(
+            short_name='test-pending-votes',
+            name='Test Pending Votes Election',
+            description='Test Election for Pending Votes',
+            admin=self.user
+        )
+        if not self.election.uuid:
+            self.election.uuid = str(uuid.uuid4())
+            self.election.save()
+
+        self.election.questions = [{"answer_urls": [None, None], "answers": ["Yes", "No"], "choice_type": "approval", "max": 1, "min": 0, "question": "Test?", "result_type": "absolute", "short_name": "Test?", "tally_type": "homomorphic"}]
+        self.election.generate_trustee(views.ELGAMAL_PARAMS)
+        self.election.openreg = True
+        self.election.freeze()
+
+        self.voter = models.Voter.objects.create(
+            uuid=str(uuid.uuid4()),
+            election=self.election,
+            voter_email='voter@example.com',
+            voter_name='Test Voter',
+            voter_login_id='testvoter'
+        )
+
+    def _create_cast_vote(self, verified=False, invalidated=False, quarantined=False):
+        """Helper to create a CastVote with specified state"""
+        cast_vote = models.CastVote(
+            voter=self.voter,
+            vote_hash='fakehash' + str(uuid.uuid4())[:8],
+            quarantined_p=quarantined
+        )
+        cast_vote.save()
+        if verified:
+            cast_vote.verified_at = datetime.datetime.utcnow()
+            cast_vote.save()
+        elif invalidated:
+            cast_vote.invalidated_at = datetime.datetime.utcnow()
+            cast_vote.save()
+        return cast_vote
+
+    def test_num_pending_votes_counts_correctly(self):
+        """Test that num_pending_votes only counts unverified, non-quarantined votes"""
+        self.assertEqual(self.election.num_pending_votes, 0)
+
+        # These should NOT be counted as pending
+        self._create_cast_vote(verified=True)
+        self._create_cast_vote(invalidated=True)
+        self._create_cast_vote(quarantined=True)
+        self.assertEqual(self.election.num_pending_votes, 0)
+
+        # These SHOULD be counted as pending
+        self._create_cast_vote()
+        self._create_cast_vote()
+        self.assertEqual(self.election.num_pending_votes, 2)
+
+    def test_compute_tally_blocked_with_pending_votes(self):
+        """Test that tally is blocked when there are pending votes"""
+        # Create a verified vote so election has cast votes
+        verified = self._create_cast_vote(verified=True)
+        self.voter.vote_hash = verified.vote_hash
+        self.voter.cast_at = verified.cast_at
+        self.voter.save()
+
+        # Create a pending vote
+        self._create_cast_vote()
+
+        # Set up admin session
+        session = self.client.session
+        session['user'] = {'type': self.user.user_type, 'user_id': self.user.user_id}
+        session.save()
+
+        url = f'/helios/elections/{self.election.uuid}/compute_tally'
+        self.client.get(url)
+        csrf_token = self.client.session.get('csrf_token', '')
+
+        response = self.client.post(url, {'csrf_token': csrf_token})
+
+        # Should show pending votes message, not redirect
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'still being processed')
+
+        # Election should not have started tallying
+        self.election.refresh_from_db()
+        self.assertIsNone(self.election.tallying_started_at)
+
+
+class UserSearchTests(WebTest):
+    """Test user search functionality for site administrators"""
+    fixtures = ['users.json']
+    allow_database_queries = True
+
+    def setUp(self):
+        """Set up test data"""
+        self.site_admin = auth_models.User.objects.get(user_id='mccio@github.com', user_type='google')
+        self.regular_user = auth_models.User.objects.get(user_id='ben@adida.net', user_type='google')
+        self.fb_user = auth_models.User.objects.filter(user_type='facebook').first()
+
+        # Create test elections
+        self.election1, _ = models.Election.get_or_create(
+            short_name='test-user-search-1',
+            name='Test User Search Election 1',
+            description='Test Election 1',
+            admin=self.regular_user
+        )
+        if not self.election1.uuid:
+            self.election1.uuid = str(uuid.uuid4())
+            self.election1.save()
+
+        self.election2, _ = models.Election.get_or_create(
+            short_name='test-user-search-2',
+            name='Test User Search Election 2',
+            description='Test Election 2',
+            admin=self.fb_user
+        )
+        if not self.election2.uuid:
+            self.election2.uuid = str(uuid.uuid4())
+            self.election2.save()
+
+        # Add regular_user as additional admin to election2
+        self.election2.admins.add(self.regular_user)
+
+        # Add regular_user as voter to election2
+        self.voter = models.Voter.objects.create(
+            uuid=str(uuid.uuid4()),
+            election=self.election2,
+            user=self.regular_user,
+            voter_email=self.regular_user.user_id,
+            voter_name=self.regular_user.name
+        )
+
+        # Add regular_user as trustee to election1
+        self.trustee = models.Trustee.objects.create(
+            election=self.election1,
+            uuid=str(uuid.uuid4()),
+            name=self.regular_user.name,
+            email=self.regular_user.user_id,
+            secret='test-secret',
+            public_key_hash='test-hash'
+        )
+
+    def setup_login(self, user):
+        """Set up session for a user"""
+        self.client.get("/")  # Initialize session
+        session = self.client.session
+        session['user'] = {'type': user.user_type, 'user_id': user.user_id}
+        session.save()
+
+    def test_user_search_requires_admin(self):
+        """Test that user search page requires site admin privileges"""
+        # Not logged in - should return 403
+        response = self.client.get('/helios/stats/user-search')
+        self.assertStatusCode(response, 403)
+
+        # Regular user - should return 403
+        self.setup_login(self.regular_user)
+        response = self.client.get('/helios/stats/user-search')
+        self.assertStatusCode(response, 403)
+
+    def test_user_search_accessible_to_site_admin(self):
+        """Test that user search page is accessible to site admin"""
+        self.setup_login(self.site_admin)
+        response = self.client.get('/helios/stats/user-search')
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'User Search')
+
+    def test_user_search_empty_query(self):
+        """Test user search with no query returns prompt"""
+        self.setup_login(self.site_admin)
+        response = self.client.get('/helios/stats/user-search')
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'Enter a search term')
+
+    def test_user_search_by_name(self):
+        """Test searching for users by name"""
+        self.setup_login(self.site_admin)
+        response = self.client.get('/helios/stats/user-search?q=Ben')
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'Ben Adida')
+        self.assertContains(response, 'ben@adida.net')
+
+    def test_user_search_by_user_id(self):
+        """Test searching for users by user ID"""
+        self.setup_login(self.site_admin)
+        response = self.client.get('/helios/stats/user-search?q=ben@adida.net')
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'Ben Adida')
+        self.assertContains(response, 'ben@adida.net')
+
+    def test_user_search_shows_elections_as_admin(self):
+        """Test that search results show elections where user is admin"""
+        self.setup_login(self.site_admin)
+        response = self.client.get('/helios/stats/user-search?q=ben@adida.net')
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'Elections as Administrator')
+        self.assertContains(response, 'Test User Search Election 1')
+        self.assertContains(response, 'Test User Search Election 2')
+
+    def test_user_search_shows_elections_as_voter(self):
+        """Test that search results show elections where user is voter"""
+        self.setup_login(self.site_admin)
+        response = self.client.get('/helios/stats/user-search?q=ben@adida.net')
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'Elections as Voter')
+        self.assertContains(response, 'Test User Search Election 2')
+
+    def test_user_search_shows_elections_as_trustee(self):
+        """Test that search results show elections where user is trustee"""
+        self.setup_login(self.site_admin)
+        response = self.client.get('/helios/stats/user-search?q=ben@adida.net')
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'Elections as Trustee')
+        self.assertContains(response, 'Test User Search Election 1')
+
+    def test_user_search_no_results(self):
+        """Test user search with query that returns no results"""
+        self.setup_login(self.site_admin)
+        response = self.client.get('/helios/stats/user-search?q=nonexistent@example.com')
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'No users found')
+
+    def test_user_search_case_insensitive(self):
+        """Test that user search is case insensitive"""
+        self.setup_login(self.site_admin)
+        response = self.client.get('/helios/stats/user-search?q=BEN')
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'Ben Adida')
+
+    def test_user_search_shows_user_type(self):
+        """Test that search results show user type"""
+        self.setup_login(self.site_admin)
+        response = self.client.get('/helios/stats/user-search?q=ben@adida.net')
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'User Type')
+        self.assertContains(response, 'google')
+
+    def test_user_search_shows_admin_status(self):
+        """Test that search results show site admin status"""
+        self.setup_login(self.site_admin)
+
+        # Search for site admin
+        response = self.client.get('/helios/stats/user-search?q=mccio')
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'Site Admin')
+        self.assertContains(response, 'Yes')
+
+        # Search for regular user
+        response = self.client.get('/helios/stats/user-search?q=ben@adida.net')
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'Site Admin')
+        self.assertContains(response, 'No')
+
+
+class VoterUploadRestrictionTests(WebTest):
+    """Tests for voter upload restrictions when election is tallied (issue #455)"""
+    fixtures = ['users.json']
+    allow_database_queries = True
+
+    def setUp(self):
+        self.user = auth_models.User.objects.get(user_id='ben@adida.net', user_type='google')
+        self.election, _ = models.Election.get_or_create(
+            short_name='test-upload-restriction',
+            name='Test Upload Restriction',
+            description='Test',
+            admin=self.user
+        )
+        if not self.election.uuid:
+            self.election.uuid = str(uuid.uuid4())
+            self.election.save()
+
+    def setup_login(self):
+        self.client.get("/")
+        session = self.client.session
+        session['user'] = {'type': self.user.user_type, 'user_id': self.user.user_id}
+        session.save()
+
+    def test_can_modify_voters_allowed_by_default(self):
+        can_modify, reason = self.election.can_modify_voters()
+        self.assertTrue(can_modify)
+        self.assertIsNone(reason)
+
+    def test_can_modify_voters_blocked_when_encrypted_tally_exists(self):
+        # Set in memory only - the method just checks truthiness
+        self.election.encrypted_tally = True
+
+        can_modify, reason = self.election.can_modify_voters()
+        self.assertFalse(can_modify)
+        self.assertEqual(reason, "Election has been tallied")
+
+    def test_can_modify_voters_blocked_when_tallying_started(self):
+        self.election.tallying_started_at = datetime.datetime.utcnow()
+        self.election.save()
+
+        can_modify, reason = self.election.can_modify_voters()
+        self.assertFalse(can_modify)
+        self.assertEqual(reason, "Tallying has started")
+
+    def test_voter_upload_view_returns_403_when_blocked(self):
+        self.setup_login()
+        self.election.tallying_started_at = datetime.datetime.utcnow()
+        self.election.save()
+
+        response = self.client.get("/helios/elections/%s/voters/upload" % self.election.uuid)
+        self.assertStatusCode(response, 403)
+
+    def test_voters_list_shows_disabled_button_when_blocked(self):
+        self.setup_login()
+        self.election.tallying_started_at = datetime.datetime.utcnow()
+        self.election.save()
+
+        response = self.client.get("/helios/elections/%s/voters/list" % self.election.uuid)
+        self.assertStatusCode(response, 200)
+        self.assertContains(response, 'disabled')
+        self.assertContains(response, 'Tallying has started')
+
+
+class VoterDeleteRestrictionTests(WebTest):
+    """Tests for voter deletion restrictions when tallying has begun (issue #470)"""
+    fixtures = ['users.json']
+    allow_database_queries = True
+
+    def setUp(self):
+        self.user = auth_models.User.objects.get(user_id='ben@adida.net', user_type='google')
+        self.election, _ = models.Election.get_or_create(
+            short_name='test-delete-restriction',
+            name='Test Delete Restriction',
+            description='Test',
+            admin=self.user
+        )
+        if not self.election.uuid:
+            self.election.uuid = str(uuid.uuid4())
+            self.election.save()
+        # Create a voter to test deletion
+        self.voter = models.Voter.objects.create(
+            uuid=str(uuid.uuid4()),
+            election=self.election,
+            voter_email='voter@test.com',
+            voter_name='Test Voter'
+        )
+
+    def setup_login(self):
+        self.client.get("/")
+        session = self.client.session
+        session['user'] = {'type': self.user.user_type, 'user_id': self.user.user_id}
+        session.save()
+
+    def test_voter_delete_allowed_by_default(self):
+        """Voter deletion should be allowed before tallying starts"""
+        self.setup_login()
+        response = self.client.post("/helios/elections/%s/voters/%s/delete" % (
+            self.election.uuid, self.voter.uuid))
+        # Should redirect (302) on successful deletion
+        self.assertStatusCode(response, 302)
+
+    def test_voter_delete_blocked_when_tallying_started(self):
+        """Voter deletion should be blocked once tallying has started"""
+        self.setup_login()
+        self.election.tallying_started_at = datetime.datetime.utcnow()
+        self.election.save()
+
+        response = self.client.post("/helios/elections/%s/voters/%s/delete" % (
+            self.election.uuid, self.voter.uuid))
+        self.assertStatusCode(response, 403)
+
+    def test_voters_list_shows_delete_button_when_allowed(self):
+        """Voter list should show delete [x] button when deletion is allowed"""
+        self.setup_login()
+
+        response = self.client.get("/helios/elections/%s/voters/list" % self.election.uuid)
+        self.assertStatusCode(response, 200)
+        # Check for the delete link with [x] text
+        self.assertContains(response, '>x</a>]')
+
+    def test_voters_list_hides_delete_button_when_blocked(self):
+        """Voter list should hide delete [x] button when tallying has started"""
+        self.setup_login()
+        self.election.tallying_started_at = datetime.datetime.utcnow()
+        self.election.save()
+
+        response = self.client.get("/helios/elections/%s/voters/list" % self.election.uuid)
+        self.assertStatusCode(response, 200)
+        # Check that the delete link is not present
+        self.assertNotContains(response, '>x</a>]')
+

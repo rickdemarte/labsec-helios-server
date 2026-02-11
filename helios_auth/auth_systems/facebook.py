@@ -2,8 +2,6 @@
 Facebook Authentication
 """
 
-import logging
-
 from django.conf import settings
 from django.core.mail import send_mail
 
@@ -12,31 +10,32 @@ API_KEY = settings.FACEBOOK_API_KEY
 API_SECRET = settings.FACEBOOK_API_SECRET
   
 #from facebookclient import Facebook
-import urllib, urllib2, cgi
+import urllib.request, urllib.error, urllib.parse
 
 # some parameters to indicate that status updating is possible
 STATUS_UPDATES = True
 STATUS_UPDATE_WORDING_TEMPLATE = "Send %s to your facebook status"
 
 from helios_auth import utils
+from helios_auth.utils import format_recipient
 
 def facebook_url(url, params):
   if params:
-    return "https://graph.facebook.com%s?%s" % (url, urllib.urlencode(params))
+    return "https://graph.facebook.com%s?%s" % (url, urllib.parse.urlencode(params))
   else:
     return "https://graph.facebook.com%s" % url
 
 def facebook_get(url, params):
   full_url = facebook_url(url,params)
   try:
-    return urllib2.urlopen(full_url).read()
-  except urllib2.HTTPError:
+    return urllib.request.urlopen(full_url).read()
+  except urllib.error.HTTPError:
     from helios_auth.models import AuthenticationExpired
     raise AuthenticationExpired()
 
 def facebook_post(url, params):
   full_url = facebook_url(url, None)
-  return urllib2.urlopen(full_url, urllib.urlencode(params)).read()
+  return urllib.request.urlopen(full_url, urllib.parse.urlencode(params)).read()
 
 def get_auth_url(request, redirect_url):
   request.session['fb_redirect_uri'] = redirect_url
@@ -69,8 +68,8 @@ def update_status(user_id, user_info, token, message):
       })
 
 def send_message(user_id, user_name, user_info, subject, body):
-  if user_info.has_key('email'):
-    send_mail(subject, body, settings.SERVER_EMAIL, ["%s <%s>" % (user_name, user_info['email'])], fail_silently=False)    
+  if 'email' in user_info:
+    send_mail(subject, body, settings.SERVER_EMAIL, [format_recipient(user_name, user_info['email'])], fail_silently=False)    
 
 
 ##

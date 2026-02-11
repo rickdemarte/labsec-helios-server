@@ -1,44 +1,35 @@
 # -*- coding: utf-8 -*-
-from django.conf.urls import *
-from django.contrib import admin
 from django.conf import settings
-from django.views.i18n import javascript_catalog
+from django.contrib import admin
+from django.urls import include, path, re_path
+from django.views.static import serve
+from helios import views as helios_views
 
-js_info_dict = {
-    'packages': ('helios', 'helios_auth'),
-}
+urlpatterns = [
+    path('admin/', admin.site.urls),
 
-admin.autodiscover()
+    path('auth/', include('helios_auth.urls')),
+    path('helios/', include('helios.urls')),
 
-urlpatterns = patterns(
-    '',
-    (r'^auth/', include('helios_auth.urls')),
-    (r'^helios/', include('helios.urls')),
-    (r'^admin/', include(admin.site.urls)),
-    (r'^jsi18n/$', javascript_catalog, js_info_dict),
-)
+    # SHOULD BE REPLACED BY APACHE STATIC PATH
+    re_path(r'booth/(?P<path>.*)$', serve, {'document_root' : settings.ROOT_PATH + '/heliosbooth'}),
+    re_path(r'verifier/(?P<path>.*)$', serve, {'document_root' : settings.ROOT_PATH + '/heliosverifier'}),
 
-if settings.AUTH_DEFAULT_AUTH_SYSTEM == 'shibboleth':
-    urlpatterns += patterns(
-        '',
-        (r'^', include('heliosinstitution.urls')),
-    )
-else:
-    urlpatterns += patterns(
-        '',
-        (r'^', include('server_ui.urls')),
-    )
+    re_path(r'static/auth/(?P<path>.*)$', serve, {'document_root' : settings.ROOT_PATH + '/helios_auth/media'}),
+    re_path(r'static/helios/(?P<path>.*)$', serve, {'document_root' : settings.ROOT_PATH + '/helios/media'}),
+    re_path(r'static/(?P<path>.*)$', serve, {'document_root' : settings.ROOT_PATH + '/server_ui/media'}),
 
-if settings.DEBUG: # otherwise, they should be served by a webserver like apache
+    # Email opt-out/opt-in URLs
+    path('optout/', include([
+        path('', helios_views.optout_form, name='optout_form'),
+        path('success/', helios_views.optout_success, name='optout_success'),
+        path('confirm/<str:email>/<str:code>/', helios_views.optout_confirm, name='optout_confirm'),
+    ])),
+    path('optin/', include([
+        path('', helios_views.optin_form, name='optin_form'),
+        path('success/', helios_views.optin_success, name='optin_success'),
+        path('confirm/<str:email>/<str:code>/', helios_views.optin_confirm, name='optin_confirm'),
+    ])),
 
-    urlpatterns += patterns(
-        '',
-        # SHOULD BE REPLACED BY APACHE STATIC PATH
-        (r'booth/(?P<path>.*)$', 'django.views.static.serve', {'document_root' : settings.ROOT_PATH + '/heliosbooth'}),
-        (r'verifier/(?P<path>.*)$', 'django.views.static.serve', {'document_root' : settings.ROOT_PATH + '/heliosverifier'}),
-
-        (r'static/auth/(?P<path>.*)$', 'django.views.static.serve', {'document_root' : settings.ROOT_PATH + '/helios_auth/media'}),
-        (r'static/helios/(?P<path>.*)$', 'django.views.static.serve', {'document_root' : settings.ROOT_PATH + '/helios/media'}),
-        (r'static/heliosinstitution/(?P<path>.*)$', 'django.views.static.serve', {'document_root' : settings.ROOT_PATH + '/heliosinstitution/media'}),
-        (r'static/(?P<path>.*)$', 'django.views.static.serve', {'document_root' : settings.ROOT_PATH + '/server_ui/media'})
-    )
+    path('', include('server_ui.urls')),
+]

@@ -1,40 +1,37 @@
+
 """
 Authentication URLs
 
 Ben Adida (ben@adida.net)
 """
 
-from django.conf.urls import *
+from django.urls import path, re_path
 
-from views import *
-from auth_systems.password import password_login_view, password_forgotten_view
-from auth_systems.twitter import follow_view
-from auth_systems.ldapauth import ldap_login_view
-from auth_systems.shibboleth import shibboleth_login_view, shibboleth_register
+from settings import AUTH_ENABLED_SYSTEMS
+from . import views, url_names
 
-urlpatterns = patterns('',
+urlpatterns = [
     # basic static stuff
-    (r'^$', index),
-    (r'^logout$', logout),
-    (r'^start/(?P<system_name>.*)$', start),
+    path('', views.index, name=url_names.AUTH_INDEX),
+    path('logout', views.logout, name=url_names.AUTH_LOGOUT),
+    re_path(r'^start/(?P<system_name>.*)$', views.start, name=url_names.AUTH_START),
     # weird facebook constraint for trailing slash
-    (r'^after/$', after),
-    (r'^why$', perms_why),
-    (r'^after_intervention$', after_intervention),
-    
-    ## should make the following modular
+    path('after/', views.after, name=url_names.AUTH_AFTER),
+    path('why', views.perms_why, name=url_names.AUTH_WHY),
+    path('after_intervention', views.after_intervention, name=url_names.AUTH_AFTER_INTERVENTION),
+]
 
-    # password auth
-    (r'^password/login', password_login_view),
-    (r'^password/forgot', password_forgotten_view),
+# password auth
+if 'password' in AUTH_ENABLED_SYSTEMS:
+    from .auth_systems.password import urlpatterns as password_patterns
+    urlpatterns.extend(password_patterns)
 
-    # twitter
-    (r'^twitter/follow', follow_view),
+# ldap
+if 'ldap' in AUTH_ENABLED_SYSTEMS:
+    from .auth_systems.ldapauth import urlpatterns as ldap_patterns
+    urlpatterns.extend(ldap_patterns)
 
-    # ldap
-    (r'^ldap/login', ldap_login_view),
-    
-    # shibboleth
-    (r'^shib/login', shibboleth_login_view),
-    (r'^shib/register', shibboleth_register),
-)
+# devlogin (development only)
+if 'devlogin' in AUTH_ENABLED_SYSTEMS:
+    from .auth_systems.devlogin import urlpatterns as devlogin_patterns
+    urlpatterns.extend(devlogin_patterns)

@@ -6,13 +6,11 @@ GAE
 Ben Adida
 (ben@adida.net)
 """
-
 from django.db import models
-from jsonfield import JSONField
 
-import datetime, logging
+from .auth_systems import can_check_constraint, uses_case_insensitive_user_id, AUTH_SYSTEMS
+from .jsonfield import JSONField
 
-from auth_systems import AUTH_SYSTEMS, can_check_constraint, can_list_categories
 
 # an exception to catch when a user is no longer authenticated
 class AuthenticationExpired(Exception):
@@ -28,7 +26,8 @@ class User(models.Model):
   info = JSONField()
   
   # access token information
-  token = JSONField(null = True)
+  # For CAS deployments this is typically unused; allow blank in admin/forms.
+  token = JSONField(null=True, blank=True)
   
   # administrator
   admin_p = models.BooleanField(default=False)
@@ -37,9 +36,6 @@ class User(models.Model):
     unique_together = (('user_type', 'user_id'),)
     app_label = 'helios_auth'
 
-  def __unicode__(self):
-    return self.user_id
-    
   @classmethod
   def _get_type_and_id(cls, user_type, user_id):
     return "%s:%s" % (user_type, user_id)    
@@ -50,26 +46,41 @@ class User(models.Model):
     
   @classmethod
   def get_by_type_and_id(cls, user_type, user_id):
-    return cls.objects.get(user_type = user_type, user_id = user_id)
+    if uses_case_insensitive_user_id(user_type):
+      return cls.objects.get(user_type=user_type, user_id__iexact=user_id)
+    return cls.objects.get(user_type=user_type, user_id=user_id)
   
   @classmethod
   def update_or_create(cls, user_type, user_id, name=None, info=None, token=None):
-    obj, created_p = cls.objects.get_or_create(user_type = user_type, user_id = user_id, defaults = {'name': name, 'info':info, 'token':token})
-    
+    case_insensitive = uses_case_insensitive_user_id(user_type)
+
+    if case_insensitive:
+      try:
+        obj = cls.objects.get(user_type=user_type, user_id__iexact=user_id)
+        created_p = False
+      except cls.DoesNotExist:
+        obj = cls.objects.create(user_type=user_type, user_id=user_id, name=name, info=info, token=token)
+        created_p = True
+    else:
+      obj, created_p = cls.objects.get_or_create(user_type=user_type, user_id=user_id, defaults={'name': name, 'info': info, 'token': token})
+
     if not created_p:
       # special case the password: don't replace it if it exists
-      if obj.info.has_key('password'):
+      if 'password' in obj.info:
         info['password'] = obj.info['password']
 
       obj.info = info
       obj.name = name
       obj.token = token
+      # For case-insensitive systems, update user_id to preserve the current case
+      if case_insensitive:
+        obj.user_id = user_id
       obj.save()
 
     return obj
     
   def can_update_status(self):
-    if not AUTH_SYSTEMS.has_key(self.user_type):
+    if self.user_type not in AUTH_SYSTEMS:
       return False
 
     return AUTH_SYSTEMS[self.user_type].STATUS_UPDATES
@@ -79,7 +90,7 @@ class User(models.Model):
     Certain auth systems can choose to limit election creation
     to certain users. 
     """
-    if not AUTH_SYSTEMS.has_key(self.user_type):
+    if self.user_type not in AUTH_SYSTEMS:
       return False
     
     return AUTH_SYSTEMS[self.user_type].can_create_election(self.user_id, self.info)
@@ -91,16 +102,16 @@ class User(models.Model):
     return AUTH_SYSTEMS[self.user_type].STATUS_UPDATE_WORDING_TEMPLATE
 
   def update_status(self, status):
-    if AUTH_SYSTEMS.has_key(self.user_type):
+    if self.user_type in AUTH_SYSTEMS:
       AUTH_SYSTEMS[self.user_type].update_status(self.user_id, self.info, self.token, status)
       
   def send_message(self, subject, body):
-    if AUTH_SYSTEMS.has_key(self.user_type):
+    if self.user_type in AUTH_SYSTEMS:
       subject = subject.split("\n")[0]
       AUTH_SYSTEMS[self.user_type].send_message(self.user_id, self.name, self.info, subject, body)
 
   def send_notification(self, message):
-    if AUTH_SYSTEMS.has_key(self.user_type):
+    if self.user_type in AUTH_SYSTEMS:
       if hasattr(AUTH_SYSTEMS[self.user_type], 'send_notification'):
         AUTH_SYSTEMS[self.user_type].send_notification(self.user_id, self.info, message)
   
@@ -115,17 +126,17 @@ class User(models.Model):
       return False
       
     # no constraint? Then eligible!
-    if not eligibility_case.has_key('constraint'):
+    if 'constraint' not in eligibility_case:
       return True
     
     # from here on we know we match the auth system, but do we match one of the constraints?  
 
+    # does the auth system allow for checking a constraint?
+    if not can_check_constraint(self.user_type):
+      return False
+
     auth_system = AUTH_SYSTEMS[self.user_type]
 
-    # does the auth system allow for checking a constraint?
-    if not hasattr(auth_system, 'check_constraint'):
-      return False
-      
     for constraint in eligibility_case['constraint']:
       # do we match on this constraint?
       if auth_system.check_constraint(constraint=constraint, user = self):
@@ -146,14 +157,14 @@ class User(models.Model):
     if self.name:
       return self.name
 
-    if self.info.has_key('name'):
+    if 'name' in self.info:
       return self.info['name']
 
     return self.user_id
   
   @property
   def public_url(self):
-    if AUTH_SYSTEMS.has_key(self.user_type):
+    if self.user_type in AUTH_SYSTEMS:
       if hasattr(AUTH_SYSTEMS[self.user_type], 'public_url'):
         return AUTH_SYSTEMS[self.user_type].public_url(self.user_id)
 

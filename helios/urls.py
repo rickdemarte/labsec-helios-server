@@ -1,42 +1,36 @@
 # -*- coding: utf-8 -*-
-from django.conf.urls import *
+from django.urls import include, path
 
-from django.conf import settings
+from . import views, url_names as names
 
-from views import *
-
-urlpatterns = None
-
-urlpatterns = patterns('',
-  (r'^autologin$', admin_autologin),
-  (r'^testcookie$', test_cookie),
-  (r'^testcookie_2$', test_cookie_2),
-  (r'^nocookies$', nocookies),
-  (r'^stats/', include('helios.stats_urls')),
+urlpatterns = [
+  path('autologin', views.admin_autologin),
+  path('testcookie', views.test_cookie, name=names.COOKIE_TEST),
+  path('testcookie_2', views.test_cookie_2, name=names.COOKIE_TEST_2),
+  path('nocookies', views.nocookies, name=names.COOKIE_NO),
+  path('stats/', include('helios.stats_urls')),
 
   # election shortcut by shortname
-  (r'^e/(?P<election_short_name>[^/]+)$', election_shortcut),
-  (r'^e/(?P<election_short_name>[^/]+)/vote$', election_vote_shortcut),
+  path('e/<str:election_short_name>', views.election_shortcut, name=names.ELECTION_SHORTCUT),
+  path('e/<str:election_short_name>/vote', views.election_vote_shortcut, name=names.ELECTION_SHORTCUT_VOTE),
 
   # vote shortcut
-  (r'^v/(?P<vote_tinyhash>[^/]+)$', castvote_shortcut),
+  path('v/<str:vote_tinyhash>', views.castvote_shortcut, name=names.CAST_VOTE_SHORTCUT),
+
+  # vote by hash
+  path('vh/<str:vote_hash>', views.castvote_fullhash_shortcut, name=names.CAST_VOTE_FULLHASH_SHORTCUT),
   
   # trustee login
-  (r'^t/(?P<election_short_name>[^/]+)/(?P<trustee_email>[^/]+)/(?P<trustee_secret>[^/]+)$', trustee_login),
+  path('t/<str:election_short_name>/<str:trustee_email>/<str:trustee_secret>', views.trustee_login,
+      name=names.TRUSTEE_LOGIN),
   
   # election
-  (r'^elections/params$', election_params),
-  (r'^elections/verifier$', election_verifier),
-  (r'^elections/single_ballot_verifier$', election_single_ballot_verifier),
-  (r'^elections/new$', election_new),
-  (r'^elections/administered$', elections_administered),
-  (r'^elections/voted$', elections_voted),
+  path('elections/params', views.election_params, name=names.ELECTIONS_PARAMS),
+  path('elections/verifier', views.election_verifier, name=names.ELECTIONS_VERIFIER),
+  path('elections/single_ballot_verifier', views.election_single_ballot_verifier, name=names.ELECTIONS_VERIFIER_SINGLE_BALLOT),
+  path('elections/new', views.election_new, name=names.ELECTIONS_NEW),
+  path('elections/administered', views.elections_administered, name=names.ELECTIONS_ADMINISTERED),
+  path('elections/voted', views.elections_voted, name=names.ELECTIONS_VOTED),
   
-  (r'^elections/(?P<election_uuid>[^/]+)', include('helios.election_urls')),
-  
-  
-  (r'^heliosinstitution/', include('heliosinstitution.urls')),
-  
-)
-
-
+  path('elections/<str:election_uuid>', include('helios.election_urls')),
+]
