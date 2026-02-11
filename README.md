@@ -1,6 +1,6 @@
-# Helios Server pt-BR (helios-server-ptbr)
-
+# Helios Server pt-BR (helios-server)
 Este repositório é uma variação do **Helios Election System** com foco em **uso em português (pt-BR)** e com um fluxo moderno de execução via **Docker Compose**.
+
 
 O Helios é um sistema de votação eletrônica com **verificabilidade ponta-a-ponta (E2E verifiable)**. Em termos práticos: ele permite conduzir eleições/plebiscitos/referendos onde o eleitor pode **verificar** que seu voto foi registrado corretamente e que a apuração foi feita de forma íntegra, sem que o sistema precise descriptografar votos individuais.
 
@@ -30,6 +30,7 @@ O Helios é um sistema de votação eletrônica com **verificabilidade ponta-a-p
 - O servidor armazena votos criptografados e evidências necessárias para auditoria.
 - A apuração combina votos criptografados e apenas o **resultado final** é descriptografado.
 - Trustees podem participar do processo de descriptografia do resultado, conforme configuração.
+- ** ALTAMENTE DESRECOMENDADO USAR TRUSTEES ** pois isso só adicionaria pontos de falha e problemas na interpretação em auditorias, por exemplo
 
 ---
 
