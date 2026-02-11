@@ -7,6 +7,8 @@ Este repositório contém uma versão do **Helios Server** adaptada para **pt-BR
 > 2) `docker compose up -d --build`
 > 3) acesse via **NGINX** (porta 80/443) ou exponha o **Django** diretamente (porta 8000)
 
+** Importante: ** Lembre-se de alterar docker/nginx/default.conf para o domínio correto.
+
 ---
 
 ## Pré‑requisitos
