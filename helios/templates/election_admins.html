@@ -1,0 +1,43 @@
+{% extends TEMPLATE_BASE %}
+{% load i18n %}
+
+{% block title %}Administradores de {{election.name}}{% endblock %}
+
+{% block content %}
+  <h3 class="title">{{election.name}} &mdash; Administradores <span style="font-size:0.7em;">[<a href="{% url "election@view" election.uuid %}">voltar para a eleição</a>]</span></h3>
+
+<p>
+    Administradores têm controle total sobre esta eleição, incluindo gerenciar eleitores, perguntas, trustees e configurações.
+</p>
+
+<p>
+    [ <a href="{% url "election@admins@add" election.uuid %}">adicionar um administrador</a> ]
+</p>
+
+<h4>Criador da eleição</h4>
+<p>
+  <strong>{{admin.display_html_small|safe}}</strong> ({{admin.user_id}})<br />
+  <em>O criador da eleição não pode ser removido.</em>
+</p>
+
+{% if additional_admins %}
+<h4>Administradores adicionais</h4>
+<ul>
+{% for a in additional_admins %}
+<li>
+  {{a.display_html_small|safe}} ({{a.user_id}})
+  {% if a.pk != current_user.pk %}
+  [<a href="{% url "election@admins@remove" election.uuid %}?email={{a.user_id}}&user_type={{a.user_type}}">remover</a>]
+  {% else %}
+  <em>(você)</em>
+  {% endif %}
+</li>
+{% endfor %}
+</ul>
+{% else %}
+<p>
+  <em>Nenhum administrador adicional foi adicionado.</em>
+</p>
+{% endif %}
+
+{% endblock %}

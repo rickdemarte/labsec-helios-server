@@ -1,0 +1,41 @@
+{% extends TEMPLATE_BASE %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block header %}
+  <h1 style="font-size: 2em; margin: 10px 0; color: #333;">Helios Voting</h1>
+{% endblock %}
+
+{% block content %}
+  <h2 class="title">{{ title }}</h2>
+  
+  {% if error %}
+  <p style="color: red;">{{ error }}</p>
+  {% endif %}
+  
+  <p>{{ description }}</p>
+  
+  <form class="prettyform" method="POST" action="">
+    <input type="hidden" name="csrf_token" value="{{csrf_token}}" />
+    <table class="pretty">
+      <tr>
+        <td><label for="email">Endereço de email:</label></td>
+        <td><input type="email" id="email" name="email" required style="width: 300px;" /></td>
+      </tr>
+    </table>
+    <div>
+      <label for="">&nbsp;</label>
+      <input type="submit" value="{% if action == 'optout' %}Enviar confirmação de opt-out{% else %}Enviar confirmação de opt-in{% endif %}" class="button" />
+    </div>
+  </form>
+  
+  <div style="margin-top: 30px; padding: 15px; background: #f9f9f9; border: 1px solid #ddd;">
+    <p><strong>Próximos passos:</strong></p>
+    <p>Você receberá um email de confirmação com um link para concluir sua solicitação.</p>
+    {% if action == 'optout' %}
+    <p>Após optar por sair (opt-out), você não receberá emails do Helios até reativar (opt-in).</p>
+    {% else %}
+    <p>Após reativar (opt-in), você voltará a receber emails do sistema de votação Helios.</p>
+    {% endif %}
+  </div>
+{% endblock %}

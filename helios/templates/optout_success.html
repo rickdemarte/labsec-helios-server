@@ -1,0 +1,27 @@
+{% extends TEMPLATE_BASE %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block header %}
+  <h1 style="font-size: 2em; margin: 10px 0; color: #333;">Helios Voting</h1>
+{% endblock %}
+
+{% block content %}
+  <h2 class="title">{{ title }}</h2>
+  
+  <div style="text-align: center; margin: 20px 0;">
+    <span class="highlight-box round" style="background-color: #f0f8ff; border: 1px solid #007cba; padding: 15px; display: inline-block;">
+      {{ message }}
+    </span>
+  </div>
+  
+  <div style="margin-top: 30px; padding: 15px; background: #f9f9f9; border: 1px solid #ddd;">
+    <p><strong>Próximos passos:</strong></p>
+    <p>Verifique seu email e clique no link de confirmação para concluir sua solicitação.</p>
+    <p>Se você não encontrar o email, verifique a pasta de spam.</p>
+  </div>
+  
+  <div style="margin-top: 30px; text-align: center;">
+    <a href="/">← Voltar para o Helios</a>
+  </div>
+{% endblock %}

@@ -1,8 +1,10 @@
 from django.contrib import admin
-from helios.models import User
 
-class UserAdmin(admin.ModelAdmin):	
-    exclude = ('info', 'token')
-    list_display = ('name', 'user_id')
+from .models import User
 
-admin.site.register(User, UserAdmin)
+
+@admin.register(User)
+class HeliosAuthUserAdmin(admin.ModelAdmin):
+    list_display = ("id", "user_type", "user_id", "name", "admin_p")
+    list_filter = ("user_type", "admin_p")
+    search_fields = ("user_id", "name")

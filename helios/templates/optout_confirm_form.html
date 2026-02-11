@@ -1,0 +1,50 @@
+{% extends TEMPLATE_BASE %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block header %}
+  <h1 style="font-size: 2em; margin: 10px 0; color: #333;">Helios Voting</h1>
+{% endblock %}
+
+{% block content %}
+  <h2 class="title">{{ title }}</h2>
+
+  <div style="margin: 20px 0; padding: 20px; background: #f9f9f9; border: 1px solid #ddd;">
+    <p style="font-size: 16px;">{{ description }}</p>
+
+    <div style="margin-top: 20px; padding: 15px; background: white; border-left: 4px solid {% if action == 'optout' %}#ff9800{% else %}#4caf50{% endif %};">
+      <p><strong>Endereço de email:</strong> {{ email }}</p>
+    </div>
+  </div>
+
+  {% if action == 'optout' %}
+  <div style="margin: 20px 0; padding: 15px; background: #fff3cd; border: 1px solid #ffeaa7;">
+    <p><strong>O que vai acontecer:</strong></p>
+    <ul style="margin: 10px 0;">
+      <li>Você não receberá emails do sistema de votação Helios</li>
+      <li>Você não poderá ser adicionado a novas eleições até reativar (opt-in)</li>
+      <li>Você pode reativar (opt-in) a qualquer momento</li>
+    </ul>
+  </div>
+  {% else %}
+  <div style="margin: 20px 0; padding: 15px; background: #e8f5e9; border: 1px solid #c8e6c9;">
+    <p><strong>O que vai acontecer:</strong></p>
+    <ul style="margin: 10px 0;">
+      <li>Você voltará a receber emails do sistema de votação Helios</li>
+      <li>Você poderá ser adicionado a eleições e receber notificações de votação</li>
+      <li>Você pode optar por sair (opt-out) novamente a qualquer momento</li>
+    </ul>
+  </div>
+  {% endif %}
+
+  <form class="prettyform" method="POST" action="">
+    <input type="hidden" name="csrf_token" value="{{csrf_token}}" />
+    <div style="margin-top: 30px; text-align: center;">
+      <input type="submit" value="{% if action == 'optout' %}Confirmar opt-out{% else %}Confirmar opt-in{% endif %}" class="button large" />
+    </div>
+  </form>
+
+  <div style="margin-top: 20px; text-align: center;">
+    <a href="/" style="color: #666;">Cancelar e voltar para o Helios</a>
+  </div>
+{% endblock %}

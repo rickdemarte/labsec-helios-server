@@ -1,0 +1,41 @@
+{% extends TEMPLATE_BASE %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block header %}
+  <h1 style="font-size: 2em; margin: 10px 0; color: #333;">Helios Voting</h1>
+{% endblock %}
+
+{% block content %}
+  <h2 class="title">{{ title }}</h2>
+  
+  <div style="text-align: center; margin: 20px 0;">
+    <span class="highlight-box round" style="background-color: #f0f8f0; border: 1px solid #4caf50; padding: 15px; display: inline-block;">
+      {{ message }}
+    </span>
+  </div>
+  
+  {% if action == 'optout' %}
+  <div style="margin-top: 30px; padding: 15px; background: #f9f9f9; border: 1px solid #ddd;">
+    <p><strong>O que isso significa:</strong></p>
+    <ul>
+      <li>Você não receberá emails do sistema de votação Helios</li>
+      <li>Você não poderá ser adicionado a novas eleições até reativar (opt-in)</li>
+      <li>Você pode reativar (opt-in) a qualquer momento acessando <a href="{% url 'optin_form' %}">a página de opt-in</a></li>
+    </ul>
+  </div>
+  {% else %}
+  <div style="margin-top: 30px; padding: 15px; background: #f9f9f9; border: 1px solid #ddd;">
+    <p><strong>O que isso significa:</strong></p>
+    <ul>
+      <li>Você passará a receber emails do sistema de votação Helios</li>
+      <li>Você poderá ser adicionado a eleições e receber notificações de votação</li>
+      <li>Você pode optar por sair (opt-out) novamente a qualquer momento usando o link de descadastro em qualquer email</li>
+    </ul>
+  </div>
+  {% endif %}
+  
+  <div style="margin-top: 30px; text-align: center;">
+    <a href="/">← Voltar para o Helios</a>
+  </div>
+{% endblock %}
