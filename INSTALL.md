@@ -11,8 +11,9 @@ Este repositório contém uma versão do **Helios Server** adaptada para **pt-BR
 
 ## Pré‑requisitos
 
-- **Docker** e **Docker Compose** (plugin `docker compose`)
+- **Docker** e **Docker Compose** (plugin `docker compose`) - https://docs.docker.com/compose/install/linux/
 - (Opcional) `curl` para testes locais
+
 
 ---
 
@@ -72,7 +73,7 @@ Por padrão, o `docker-compose.yml` expõe **80/443** no host via container `ngi
 Na pasta há dois arquivos, você pode renomear, copiar, editar, etc.
  - `docker-compose-nginx.yml` com ** nginx **
  - `docker-compose-no_nginx.yml` sem ** nginx **
- 
+
 ### Quando usar
 
 - Quando você quer um ponto único de entrada (HTTP/HTTPS)
