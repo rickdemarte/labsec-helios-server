@@ -1,47 +1,52 @@
 {% extends TEMPLATE_BASE %}
-{% load i18n %}
+
 {% block content %}
-<div class="row">
-<div class="col-md-12">
-<form method="post" role="form" class="form-horizontal" action="" id="upload_form" enctype="multipart/form-data">
-   <div class="form-group">
-  <h2 class="title">{% trans "Bulk Upload Voters" %}</h2>
-  <h3 class="title">{{election.name}}</h3>
- <pre>
-   {% trans "&lt;unique_id&gt;,&lt;email&gt,&lt;full name&gt;" %}
+  <h2 class="title">{{election.name}} &mdash; Envio em lote de eleitores <span style="font-size:0.7em;">[<a href="{% url "election@view" election.uuid %}">voltar para a eleição</a>]</span></h2>
+
+<form method="post" action="" id="upload_form" enctype="multipart/form-data">
+<p>
+    Se você quiser especificar sua lista de eleitores por nome e email,<br />
+    você pode enviar aqui um arquivo com essa lista em lote.<br /><br />
+
+    Prepare um arquivo texto com valores separados por vírgula (CSV) com os campos:
+</p>
+<pre>
+   password,&lt;id_unico&gt;,&lt;email&gt;,&lt;nome_completo&gt;
+</pre>
+<p>
+ou
+</p>
+<pre>
+   github,&lt;usuario&gt;
 </pre>
 
 <p>
-{% trans "For example:" %}
+Por exemplo:
   </p>
   <pre>
-      benadida,ben@adida.net,Ben Adida
-      bobsmith,bob@acme.org,Bob Smith
+      password,bobsmith,bob@acme.org,Bob Smith
+      github,benadida
       ...
   </pre> 
 
-  </div>
+  <p>
+    A forma mais fácil de preparar esse arquivo é usar uma planilha e exportar como "CSV".
+  </p>
   {% if error %}
   <div style="color: red;">{{error}}</div>
   {% endif %}
     <input type="hidden" name="csrf_token" value="{{csrf_token}}" />
-    <div class="form-group">
-    <input class="btn btn-primary" type="file" name="voters_file" value="{% trans "Browse" %}"/>
-    </div>
-    <div class="form-group">
-        <input class="btn btn-primary" type="submit" value="{% trans "go" %}" />
-        <a class="btn btn-danger" href="{% url "helios.views.one_election_view" election.uuid %}">{% trans "back to election" %}</a>
-    </div>
+    
+    <input type="file" name="voters_file" />
+    <input class="button" type="submit" value="enviar" />
 </form>
 
 <div id="processing">
 </div>
 
 <div id="done" style="display:none;">
-  {% trans "OK, done uploading." %}<br />
-  {% trans "You can now" %} <a href="./manage">{% trans "view the list of voters" %}</a>.
+  OK, upload concluído.<br />
+  Agora você pode <a href="./manage">ver a lista de eleitores</a>.
 </div>
 
-</div>
-</div>
 {% endblock %}

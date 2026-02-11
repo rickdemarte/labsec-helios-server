@@ -1,66 +1,119 @@
+{% load i18n %}
 <!DOCTYPE html>
 <!--[if IE 8]> 				 <html class="no-js lt-ie9" lang="en" > <![endif]-->
-<!--[if gt IE 8]><!--> <html class="no-js" lang="{% firstof settings.LANGUAGE_CODE 'en' %}"> <!--<![endif]-->
-{% load i18n %}
-{% load staticfiles %}
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <meta name="viewport" content="width=device-width">
   <title>{% block title %}{% endblock %}</title>
+  
+  <link rel="stylesheet" href="/static/foundation/css/foundation.css">
+  <link rel="stylesheet" href="/static/foundation-tweaks.css">
+  <link rel="stylesheet" href="/static/main.css">
+  <link rel="stylesheet" href="/static/helios/timezone-display.css">
 
-  <link rel="stylesheet" type="text/css" media="screen" href="{% static "bootstrap/css/bootstrap.min.css" %}"/>
-  <link rel="stylesheet" type="text/css" media="screen" href="{% static "css/custom.css" %}"/>
-  <link rel="stylesheet" type="text/css" media="screen" href="{% static "css/ui-lightness/jquery-ui-1.8.1.custom.css" %}">
+{% if settings.DEBUG %}  
+  <script src="/static/foundation/js/vendor/custom.modernizr.js"></script>
+  <script language="javascript" src="/static/helios/js/jquery-1.4.2.min.js"></script>
+  <script language="javascript" src="/static/helios/js/jquery-ui-1.8.1.custom.min.js"></script>
+  <script language="javascript" src="/static/helios/js/jqsplitdatetime.js"></script>
+  <script language="javascript" src="/static/helios/helios/jquery.json.min.js"></script>
+  <script language="javascript" src="/static/foundation/js/foundation.min.js"></script>
 
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,400i,700|Roboto+Mono">
-    <style>
-            body,input{font-family:"Roboto","Helvetica Neue",Helvetica,Arial,sans-serif}
-            code,kbd,pre{font-family:"Roboto Mono","Courier New",Courier,monospace}
-   </style>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+{% else %}
+<script language="javascript" src="/static/20140302-helios-combined.js"></script>
+{% endif %}
 
-  <script src={% static "foundation/js/vendor/custom.modernizr.js" %}></script>
-  <script language="javascript" src={% static "js/jquery-1.11.2.min.js" %}></script>
-  <script language="javascript" src={% static "js/jquery-ui-1.8.1.custom.min.js" %}></script>
-  <script language="javascript" src={% static "js/jqsplitdatetime.js" %}></script>
-  <script language="javascript" src={% static "bootstrap/js/collapse.js" %}></script>
-  <script language="javascript" src={% static "js/jquery.json.min.js" %}></script>
-  <script language="javascript" src={% static "foundation/js/foundation.min.js" %}></script>
+  <script language="javascript" src="/static/helios/timezone-display.js"></script></script>
 
   {% block js %}
   {% endblock %}
 
   {% block extra-head %}{% endblock %}
-  <script language="javascript" src={% static "datetimepicker/jquery.datetimepicker.full.js" %}></script>
-  <script language="javascript" src={% static "js/utils.js" %}></script>
-  <script type="text/javascript" src="{% url "django.views.i18n.javascript_catalog" %}"></script>
 </head>
 <body>
-  {% include "navbar.html" %}
+  <div class="wrapper">
+  <nav class="top-bar">
+    <ul class="title-area">
+      <!-- Title Area -->
+      <li class="name">
+        <h1><a href="/"><img src="/static/tinylogo.png"></a></h1>
+      </li>
+      <li class="toggle-topbar menu-icon"><a href="#" onclick="$('nav').toggleClass('expanded'); return false;"><span>{% trans "Menu" %}</span></a>
+      </li>
+    </ul>
+ 
+    <section class="top-bar-section">
+      <!-- Right Nav Section -->
+      <ul class="right">
+	{% if user and user.admin_p %}
+	<li><a href="{% url "stats@home" %}">{% trans "Admin" %}</a></li>
+	<li class="divider"></li>
+	{% endif %}
+	{% if not settings.MASTER_HELIOS %}
+	<li><a href="http://heliosvoting.org">{% trans "About Helios" %}</a></li>
+	{% endif %}
+      </ul>
+      
+      <ul>
+        <li><a href="/">{{settings.SITE_TITLE}}</a></li>
+	{% if settings.MASTER_HELIOS %}
+        <li class="divider"></li>
+        <li class="active"><a href="/about">{% trans "About" %}</a></li>
+        <li class="divider"></li>
+        <li><a target="_new" href="https://github.com/benadida/helios-server">{% trans "Code" %}</a></li>
+        <li class="divider"></li>
+        <li><a href="/docs">{% trans "Docs" %}</a></li>
+        <li class="divider"></li>
+        <li><a href="/faq">FAQ</a></li>
+        <li class="divider"></li>
+        <li><a href="/privacy">Privacidade</a></li>
+	{% endif %}
+        <li class="divider"></li>
+        <li><a href="mailto:{{settings.HELP_EMAIL_ADDRESS}}">{% trans "Help" %}</a></li>
+      </ul>
+    </section>
+  </nav>
+
+
   <!-- Main Page Content and Sidebar -->
-<br><br><br>
-  <div class="container">
-      {% block content %}
-        {% block subcontent %}{% endblock subcontent %}
-      {% endblock %}
+
+  <div class="row" id="contentbody">
+      {% block content %}{% endblock %}
+  </div>
+  
+  <div class="push"></div>
   </div>
 
+  <div class="footer" id="footer">
+<!--    <span style="float:right;">
+      {% if settings.FOOTER_LOGO_URL %}
+      <img src="{{settings.FOOTER_LOGO_URL}}" />
+      {% endif %}
+    </span>-->
+    {% if user %}
+    {% trans "logged in as" %} <b>{{user.display_html_small|safe}}</b>&nbsp;&nbsp;
+    <a class="tiny button" href="{% url "auth@logout" %}?return_url={{CURRENT_URL}}">{% trans "logout" %}</a><br />
+    {% else %}
+    {% if voter %}
+    {% with voter_display=voter.alias|default:voter.name %}
+    {% blocktrans with voter_name=voter_display election_name=voter.election.name %}You are signed in as voter <u>{{voter_name}}</u> in election <u>{{election_name}}</u>.{% endblocktrans %} [<a href="{{settings.SECURE_URL_HOST}}{% url "auth@logout" %}?return_url={{CURRENT_URL}}">{% trans "sign out" %}</a>]
+    {% endwith %}
+    {% else %}
+{% if settings.SHOW_LOGIN_OPTIONS %}
+    {% trans "not logged in." %} <a class="tiny button" href="{{settings.SECURE_URL_HOST}}{% url "auth@index" %}?return_url={{CURRENT_URL}}">{% trans "log in" %}</a>
+{% else %}
+{% trans "powered by" %} <a href="http://heliosvoting.org">Helios Voting</a>.
+{% endif %}
+    {% endif %}
+    {% endif %}
+      <br clear="right" />
+    </div>
+  
+  </div>
       <script>
 	$(document).foundation();
-      </script>
-
+      </script>     
 </body>
-<link rel="stylesheet" type="text/css" media="screen" href="{% static "datetimepicker/jquery.datetimepicker.css" %}"/ >
-<script language="javascript" src={% static "datetimepicker/jquery.datetimepicker.full.js" %}></script>
-
-  {% if user %}
-      <div id="footer">
-      <div class="container" id="container-footer">
-      {% block footer %}
-         {% trans "logged in as" %} <b>{{user.pretty_name|safe}}</b>
-          <br clear="right" />
-      {% endblock footer%}
-      </div>
-      </div>
-  {% endif %}
 </html>

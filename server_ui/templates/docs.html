@@ -1,6 +1,4 @@
 {% extends 'server_ui/templates/base.html' %}
-{% load i18n %}
-
 {% block title %}{{ settings.SITE_TITLE }}{% endblock %}
 
 {% block header %}
@@ -10,35 +8,33 @@
 
 <div class="large-12-columns">
 
-<div class="row"><h2>{% trans "Documentation" %}</h2></div>
+<div class="row"><h2>Documentação</h2></div>
 
 <div class="row">
 
 <p>
-{% blocktrans %}
-The Helios Voting technology is based on advanced peer-reviewed
-cryptographic techniques that enable your vote to remain secret while
-providing an intelligent ballot tracker to let you verify that your
-ballot was received and counted properly:
-{% endblocktrans %}
+A tecnologia do Helios Voting é baseada em técnicas criptográficas avançadas,
+revisadas por pares, que permitem que seu voto permaneça secreto enquanto
+fornecem um rastreador inteligente de cédula para que você possa verificar que
+sua cédula foi recebida e contabilizada corretamente:
 </p>
 
 <ul>
-<li> <a href="http://documentation.heliosvoting.org/">{% trans "technical documentation" %}</a></li>
-<li> <a href="http://www.usenix.org/events/sec08/tech/full_papers/adida/adida.pdf">{% trans "original peer-reviewed" %} (Usenix Security 2008)</a></li>
-<li> <a href="https://github.com/google/pyrios">Pyrios</a>, a Go library by <a href="http://1.37e2.net/">Tom Roeder</a> that verifies Helios elections.
-<li> <a href="http://www.uclouvain.be/crypto/electionmonitor/default/about">{% trans "Helios Election Monitor" %}</a>, {% trans "produced by the Universite catholique de Louvain." %}</li>
+<li> <a href="http://documentation.heliosvoting.org/">documentação técnica</a></li>
+<li> <a href="http://www.usenix.org/events/sec08/tech/full_papers/adida/adida.pdf">artigo original revisado por pares (Usenix Security 2008)</a></li>
+<li> <a href="https://github.com/google/pyrios">Pyrios</a>, uma biblioteca em Go por <a href="http://1.37e2.net/">Tom Roeder</a> que verifica eleições do Helios.</li>
+<li> <a href="http://www.uclouvain.be/crypto/electionmonitor/default/about">Helios Election Monitor</a>, produzido pela Université catholique de Louvain.</li>
 </ul>
 
 <p>
-{% trans "Helios has been covered in the press:" %}
+O Helios já foi citado na imprensa:
 </p>
 
 <ul>
-<li> <a href="http://www.kcbs.com/bayareanews/Tracking-Votes-During-Elections/7161136">KCBS News Interview, May 2010</a></li>
-<li> <a href="http://harvardmagazine.com/2010/05/secret-ballots-verifiable-votes">Harvard Magazine, April 2010</a></li>
-<li> <a href="http://www.ynet.co.il/articles/0,7340,L-3720204,00.html">Ynet, Israeli Press, June 2009</a></li>
-
+<li> <a href="http://www.kcbs.com/bayareanews/Tracking-Votes-During-Elections/7161136">Entrevista na KCBS News, maio de 2010</a></li>
+<li> <a href="http://harvardmagazine.com/2010/05/secret-ballots-verifiable-votes">Harvard Magazine, abril de 2010</a></li>
+<li> <a href="http://www.ynet.co.il/articles/0,7340,L-3720204,00.html">Ynet (Israel), junho de 2009</a></li>
+</ul>
 
 </div>
 

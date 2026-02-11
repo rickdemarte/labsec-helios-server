@@ -1,15 +1,14 @@
 {% extends TEMPLATE_BASE %}
-{% load i18n %}
-{% block title %}{% trans "Statistics" %}{% endblock %}
+{% block title %}Estatísticas{% endblock %}
 
 {% block content %}
-<h1>{% trans "Problematic Elections" %}</h1>
+<h1>Eleições problemáticas</h1>
 
-{% trans "Unfrozen for more than a day." %}
+Não congeladas há mais de um dia.
 
 {% for election in elections %}
 <p>
-<b><a href="{% url "helios.views.one_election_view" election.uuid %}">{{election.name}}</a></b> -- {{election.num_voters}} voters
+<b><a href="{% url "election@view" election.uuid %}">{{election.name}}</a></b> — {{election.num_voters}} eleitores
 </p>
 {% endfor %}
 

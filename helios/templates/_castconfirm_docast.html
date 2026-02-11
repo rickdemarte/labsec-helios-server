@@ -1,11 +1,10 @@
-{% load i18n %}
 {% if election.voting_has_started %}
   {% if not election.voting_has_stopped %}
 
 <div id="cast_form">
 <form id="cast_confirm_form" method="post" action="" onsubmit="show_waiting()">
     <input type="hidden" name="csrf_token" value="{{csrf_token}}" />
-
+    
 {% if status_update_label %}
 <div class="round" style="background: #eee; padding: 10px; border: 1px dashed #888;">
 <input type="checkbox" name="status_update" value="1" checked /> {{status_update_label}}<br />
@@ -16,31 +15,30 @@
 </div>
 <br />
 {% endif %}
-{% trans "You are logged in as" %} <u>{{voter|safe}}</u><br /><br />
 
-    <button class="btn btn-primary" type="submit" >{% trans "CAST this ballot" %}</button>
-    <button class="btn btn-danger" type="button" onclick="document.location='/auth/logout';">{% trans "cancel" %}</button><br />
+Você entrou como <u>{{voter.display_html_big|safe}}</u><br /><br />
+
+    <button type="submit" class="button large">REGISTRAR esta cédula</button>
+    <span style="font-size:0.8em;"><br />Você pode registrar quantas cédulas quiser.<br />Apenas a última conta.</span>
 </form>
-<p>&nbsp;
-    <p><span style="font-size:0.9em;">{% blocktrans %}If you cancel now, your ballot will <em>NOT</em> be recorded.<br />
-    You can start the voting process over again, of course.{% endblocktrans %}</span>
+
+<p>
+    <button class="button tiny" onclick="if (confirm('Tem certeza que deseja limpar esta cédula e NÃO registrá-la?')) {document.location='{% url "election@view" election.uuid %}';}">cancelar</button><br />
+    <span style="font-size:0.8em;">Se você cancelar agora, sua cédula <em>NÃO</em> será registrada.<br />
+    Você pode reiniciar o processo de votação, se quiser.</span>
 </p>
+
+<!-- por enquanto, para proteção CSRF, sem auto-envio ainda (benadida) -->
+<!-- <script>$('#cast_confirm_form').submit()</script> -->
 
 </div>
   {% else %}
-<p>
-  {% trans "voting has stopped, sorry." %}
+<p style="font-size:1.4em;">
+  a votação foi encerrada, desculpe.
 </p>
   {% endif %}
 {% else %}
-<p>
-  {% trans "voting has not yet begun, sorry." %}
+<p style="font-size:1.4em;">
+  a votação ainda não começou, desculpe.
 </p>
-
-{% endif %}
-
-{% if not election.voting_has_started or election.voting_has_stopped %}
-    <p>
-        {% trans "Visit"  %}  <a href="{{ election.url }}"> {{election.name}} </a> {% trans "for more info." %}
-    </p>
 {% endif %}

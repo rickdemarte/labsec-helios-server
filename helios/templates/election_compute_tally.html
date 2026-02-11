@@ -1,34 +1,42 @@
 {% extends TEMPLATE_BASE %}
-{% load i18n %}
-{% block title %}Compute Encryted Tally for {{election.name}}{% endblock %}
+
+{% block title %}Calcular apuração criptografada para {{election.name}}{% endblock %}
 
 {% block content %}
-  <h2 class="title">{% trans "Compute Tally for Election:" %} {{election.name}}</h2>
+  <h2 class="title">Calcular apuração da eleição: {{election.name}}</h2>
 
 <div id="instructions">
-{% if election.num_cast_votes %}
+{% if num_pending_votes > 0 %}
 <p>
-  {% trans "You are about to compute the encrypted tally for election" %} <b>{{election.name}}</b>.
+    <b>{{ num_pending_votes }} voto{{ num_pending_votes|pluralize }} ainda sendo processado.</b>
+</p>
+<p>
+    Todos os votos precisam ser verificados antes de calcular a apuração. Aguarde e tente novamente em instantes.
+    Se isso persistir, contate <a href="mailto:{{settings.HELP_EMAIL_ADDRESS}}">{{settings.HELP_EMAIL_ADDRESS}}</a>.
+</p>
+<p>
+    <a href="{% url "election@compute-tally" election.uuid %}">Atualizar esta página</a> |
+    <a href="{% url "election@view" election.uuid %}">voltar para a eleição</a>
+</p>
+{% elif election.num_cast_votes %}
+<p>
+    Você está prestes a calcular a apuração criptografada da eleição <b>{{election.name}}</b>.
 </p>
 
 <p>
-{% blocktrans %}
-    Once you do this, voters will no longer be able to cast a ballot.
-{% endblocktrans %}
+    Depois disso, os eleitores não poderão mais registrar uma cédula.
 </p>
 
-<form id="begin_tally" method="post" action="" class="pretty">
+<form method="post" action="" onsubmit="alert('ok, a apuração começou')" class="pretty">
 <input type="hidden" name="csrf_token" value="{{csrf_token}}" />
-    
-<input class="btn btn-primary" type="submit" value="{% trans "compute encrypted tally!" %}" />
-<button class="btn btn-danger" onclick="document.location='./view'; return false;">{% trans "never mind" %}</button>
+
+<input class="button" type="submit" value="calcular apuração criptografada!" />
+<button class="button" onclick="document.location='{% url "election@view" election.uuid %}'; return false;">deixa pra lá</button>
 </form>
 {% else %}
 <p>
-{% blocktrans %}
-No votes have been cast in this election. At least one vote must be cast before you compute the tally.<br /><br />
-{% endblocktrans %}
-<a href="./view">{%trans "back to election" %}</a>
+Nenhum voto foi registrado nesta eleição. Pelo menos um voto precisa ser registrado antes de calcular a apuração.<br /><br />
+<a href="{% url "election@view" election.uuid %}">voltar para a eleição</a>
 </p>
 {% endif %}
 </div>

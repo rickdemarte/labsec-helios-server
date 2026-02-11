@@ -1,7 +1,5 @@
-{% extends TEMPLATE_BASENONAV %}
-{% load i18n %}
-{% load staticfiles %}
-{% block title %}{% trans "Confirm Vote" %}{% endblock %}
+{% extends TEMPLATE_BASE %}
+{% block title %}Confirmar voto{% endblock %}
 
 {% block content %}
 <script language="javascript">
@@ -26,8 +24,7 @@ window.onbeforeunload = function(evt) {
     evt = window.event;
   }
   
-  //var message = "You have not yet cast your ballot! Make sure to complete the voting process if you want your vote to count.";
-  var message = "Você ainda NÃO DEPOSITOU sua cédula na urna! Se você quiser que seu voto seja considerado, então complete todo o processo";
+  var message = "Você ainda não registrou sua cédula! Certifique-se de concluir o processo de votação se quiser que seu voto conte.";
 
   if (evt) {
     evt.returnValue = message;
@@ -37,17 +34,17 @@ window.onbeforeunload = function(evt) {
 };
 
 </script>
-<div id="ballot-not-cast-yet" class="container-fluid">
-<h2>{{election.name}}</h2>
-<h3>{% trans "Submit your Vote" %}</h3>
-
-<div class="alert alert-warning" role="alert">
-    A sua cédula <b><u>ainda não foi depositada</u></b> na urna.
-</div>
+<h1>Não vá ainda!<br />Sua cédula ainda não foi registrada.</h1>
 
 <div id="waiting_div">
-   {% trans "Verifying and Casting your ballot" %}<br />
-    <img src="{% static "loading.gif" %}" />
+    Verificando e registrando sua cédula<br />
+    <img src="/static/helios/loading.gif" />
+</div>
+
+<div style="word-wrap: break-word; width: 90vw;">
+Seu rastreador de cédula é:<br>
+<b>{{vote_fingerprint}}</b>
+<br><br>
 </div>
 
 <div id="all_forms">
@@ -59,9 +56,6 @@ window.onbeforeunload = function(evt) {
 {% else %}
 
 {% if show_password %}
-{% if user %}
-
-{% endif %}
 {% with cast_ballot="1" %}
 {% include "_castconfirm_password.html" %}
 {% endwith %}
@@ -69,56 +63,43 @@ window.onbeforeunload = function(evt) {
 {% else %}
 
 {% if user %}
-<div class="alert alert-danger" role="alert">
-{% if election.openreg %}
-{% blocktrans %}
-<b>Sorry, you are <em><u>not eligible</u></em> for this election.</b><br />
-{% endblocktrans %}
-{% else %}
-{% blocktrans %}
-<b>Sorry, you are <em>not registered</em> for this election, and registration is closed.</b><br />
-{% endblocktrans %}
-{% endif %}
-</div>
+<h1>Desculpe!</h1>
+<b>Desculpe, você <em>
+  {% if election.openreg %}
+    <u>não é elegível</u></em> para esta eleição.
+  {% else %}
+    não está registrado</em> para esta eleição, e o registro está fechado.
+  {% endif %}
+  </b><br /></p>
 <p>
-    <a class="btn-primary btn-lg pull-right" href="{% url "helios.views.one_election_view" election.uuid %}">{% trans "return to the main election page" %}</a>
+    [<a href="{% url "election@view" election.uuid %}">voltar para a página principal da eleição</a>]
 </p>
 {% else %}
 <p>
-  {% blocktrans %}
-  Now, we need you to log in, so we can verify your eligibility.<br /><br />
-  {% endblocktrans %}
 {% if election.openreg %}
 
-{% if election.eligibility %}
-{% else %}
-{% blocktrans %}
- This election is open to <em>anyone</em>, so log in with your preferred account.
- {% endblocktrans %}
-{% endif %}
+  {% if election.eligibility %}
+  {% else %}
+   Esta eleição está aberta a <em>qualquer pessoa</em>, então entre com a conta de sua preferência.
+  {% endif %}
 
 {% else %}
-{% blocktrans %}
-This election is only open to <em>registered voters</em>, so log in with
-the same account you registered with.
-{% endblocktrans %}
+  Esta eleição está aberta apenas para <em>eleitores registrados</em>, então entre com
+  a mesma conta que você usou para se registrar.
 {% endif %}
 </p>
 
 {{login_box|safe}}
 
 <br />
-{% blocktrans %}
-Don't worry, we'll remember your ballot while you log in.
-{% endblocktrans %}
+Não se preocupe: vamos manter sua cédula enquanto você entra.
 {% endif %}
 
 {% endif %}
-
+</p>
 {# this closes the IF ELSE of this being password_only #}
 {% endif %}
 
 </div>
-</div> <!-- ballot-not-cast-yet -->
-<br>
+
 {% endblock %}

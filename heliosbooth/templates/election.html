@@ -1,21 +1,24 @@
+
 <div id="questions_div">
 <p>
-Para votar nessa eleição é necessário que siga os passos abaixo:
+    Para votar, siga estes passos:
 <p>
     
 <ol>
-    <li> <b>Marcar</b> suas escolhas.<br />
+    <li> <b>Selecione</b> suas opções preferidas.</li>
 <br />
 
-    <li> <b>Revisar &amp; Confirmar</b> suas escolhas.<br />
-</li>
+    <li> <b>Revise</b> suas escolhas, que serão criptografadas.</li>
 <br />
 
-    <li> <b>Depositar</b> sua cédula cifrada na urna.<br />
-<span style="font-size: 14pt;">
-</span>
-</li>
+    <li> <b>Envie</b> sua cédula criptografada e autentique-se para verificar sua elegibilidade.</li>
+
 </ol>
 
-<div align="center"><button class="btn btn-primary" onclick="BOOTH.show_question(0);">Iniciar</button></div>
+<div align="center"><button onclick="BOOTH.show_question(0);">Iniciar</button></div>
 </div>
+
+<p>
+  Você pode <a target="_new" href="mailto:{$T.election_metadata.help_email}?subject=ajuda%20com%20a%20eleicao%20{$T.election.name}&body=Preciso%20de%20ajuda%20com%20a%20eleicao%20{$T.election.uuid}">enviar um email para obter ajuda</a>.
+</p>
+

@@ -1,4 +1,3 @@
-
 form.prettyform {
   font-size: 1.4em;
 }
@@ -7,7 +6,7 @@ form.prettyform label,input,textarea,select {
     line-height: 1.8;
 }
 
-form.prettyform label:not(.answer){
+form.prettyform label:not(.answer) {
     display: block;
     text-align: right;
     float: left;
@@ -19,22 +18,28 @@ form.prettyform br {
     clear: left;
 }
 
-form.prettyform input, form.prettyform textarea, button {
-    border: 0px solid black;
+form.prettyform input, form.prettyform textarea {
+    border: 1px solid black;
     margin: 5px;
     font-size: 16pt;
 }
 
+button {
+    background: lightblue;
+    margin: 5px;
+    padding: 5px 20px 5px 20px;
+    font-size: 18pt;
+}
+
 input.pretty {
     font-size: 16pt;
-    border: 0px solid black;
+    border: 1px solid black;
 }
 
 input.prettysmall {
     font-size: 12pt;
-    border: 0px solid black;
+    border: 1px solid black;
 }
-
 
 table.pretty {
     margin: 1em 1em 1em 2em;
@@ -44,31 +49,20 @@ table.pretty {
 }
 
 table.pretty th, td {
-    border: 0px silver solid;
+    border: 1px silver solid;
     padding: 0.3em;
-}
-
-
-#answer_form {
-    background-color: #eef1ec;
 }
 
 #answers {
     padding-left: 210px;
-    padding-top: 0px;
-    margin-top: 0px;
-    background-color: #eef1ec;
+    padding-top: 0;
+    margin-top: 0;
 }
 
 #questions_div {
     font-size: 1.4em;
-    background-color: #eef1ec;
 }
 
 div.selected {
   background: lightblue;
-}
-
-.panel{
-    border: 0 transparent;
 }

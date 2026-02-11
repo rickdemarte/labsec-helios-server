@@ -1,38 +1,32 @@
 {% extends "helios/templates/cryptobase.html" %}
-{% load i18n %}
+
 {% block content %}
-  <h2 class="title">{% trans "Trustee" %} {{trustee.name}}</span></h2>
-	<h2 class="title">{{election.name}}</h2>
-<br /><br />
+  <h2 class="title">{{election.name}} &mdash; Trustee {{trustee.name}} — Início</span></h2>
+
 <p>
 {% if trustee.public_key_hash %}
-
-{% blocktrans %}
-You have successfully uploaded your public key.<br />
-Your public key fingerprint is: <b>
-{% endblocktrans %}
-{{trustee.public_key_hash}}</b>. <br /><br />
-{% blocktrans %}You can{% endblocktrans %} <a class="btn btn-primary" href="{% url "helios.views.trustee_check_sk" election.uuid trustee.uuid %}">{% blocktrans %}verify that you have the right secret key {% endblocktrans %}</a>
+Você enviou sua chave pública com sucesso.<br />
+A impressão digital da sua chave pública é: <b>{{trustee.public_key_hash}}</b>.<br />
+Você pode <a href="{% url "election@trustee@check-sk" election.uuid trustee.uuid %}">verificar se você tem a chave secreta correta</a>.
 {% else %}
-<a class="btn btn-primary" href="{% url "helios.views.trustee_keygenerator" election.uuid trustee.uuid %}">{% blocktrans %}setup your key {% endblocktrans %}</a>
+<a href="{% url "election@trustee@key-generator" election.uuid trustee.uuid %}">configurar sua chave</a>
 {% endif %}
 </p>
-<br /><br />
+
 <p>
 {% if election.encrypted_tally %}
 {% if trustee.decryption_factors %}
-{% blocktrans %}
-You have successfully uploaded your decryption.
-{% endblocktrans %}
+Você enviou sua descriptografia com sucesso.
 {% else %}
-    {% blocktrans %}The encrypted tally for this election is ready.{% endblocktrans %}<br /><br />
-    <a class="btn btn-primary" href="{% url "helios.views.trustee_decrypt_and_prove" election.uuid trustee.uuid %}">{% blocktrans %}decrypt with your key{% endblocktrans %}</a>
+    A apuração criptografada desta eleição está pronta.<br />
+    <a href="{% url "election@trustee@decrypt-and-prove" election.uuid trustee.uuid %}">descriptografar com sua chave</a>
 {% endif %}
 {% else %}
-{% blocktrans %}
-ATTENTION: Once the tally is computed, come back here to provide your secret key for decryption purposes.<br />
-You should keep the email with your trustee homepage link, which contains the credentials needed to get back here.
-{% endblocktrans %}
+Quando a apuração for calculada, volte aqui para fornecer sua chave secreta para fins de descriptografia.<br />
+Você deve guardar o email com o link da sua página de trustee, que contém as credenciais necessárias para voltar aqui.
 {% endif %}
 </p>
+
+
+
 {% endblock %}

@@ -1,17 +1,15 @@
 {% extends 'server_ui/templates/base.html' %}
 {% load i18n %}
+
 {% block content %}
 
-  <h2 class="title">{% blocktrans %}
-  Election {{election.name}} Already Tallied 
-  {% endblocktrans %}
-  </h2>
+  <h2 class="title">Eleição {{election.name}} já apurada</h2>
 
   <p>
-  {% trans "This election has already been tallied (or at least the tally has begun), so you can no longer cast a vote." %}
+      Esta eleição já foi apurada (ou pelo menos a apuração já começou), então você não pode mais registrar um voto.
   </p>
-  
+
   <p>
-      <a href="{% url "helios.views.one_election_view" election.uuid %}">{% trans "view the election" %}</a>
+      <a href="{% url "election@view" election.uuid %}">ver a eleição</a>
   </p>
 {% endblock %}

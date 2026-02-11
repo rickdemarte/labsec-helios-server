@@ -1,53 +1,40 @@
 {% extends TEMPLATE_BASE %}
-{% load i18n %}
+
 {% block content %}
-<div id="header" class="col-md-12">
-  <h2 class="title">{% trans "Bulk Upload Voters &mdash; Confirm" %}</h2>
-  <h3 class="title">{{election.name}}</h3>
+  <h2 class="title">{{election.name}} &mdash; Envio em lote de eleitores &mdash; Confirmar<span style="font-size:0.7em;">[<a href="{% url "election@view" election.uuid %}">voltar para a eleição</a>]</span></h2>
+
 <p>
-{% blocktrans %}
-You have uploaded a file of voters. The first few rows of this file are:
-{% endblocktrans %}
+Você enviou um arquivo de eleitores. As primeiras linhas deste arquivo são:
 </p>
 
-<table class="table table-striped">
-<tr><th>{% trans "Voter Login" %}</th><th>{% trans "Email Address" %}</th><th>{% trans "Name" %}</th></tr>
+<table>
+<tr><th>Tipo de eleitor</th><th>Login do eleitor</th><th>Endereço de email</th><th>Nome</th></tr>
 {% for v in voters %}
-<tr><td>{{v.voter_id}}</td><td>{{v.email}}</td><td>{{v.name}}</td></tr>
+<tr><td>{{v.voter_type}}</td><td>{{v.voter_id}}</td><td>{{v.email}}</td><td>{{v.name}}</td></tr>
 {% endfor %}
 </table>
 
 {% if problems %}
-<p style="font-size: 1.5em;color: red">
-{% trans "HOLD ON:" %}<br />
-</p>
-<p>
+<p style="font-size: 1.5em;">
+ATENÇÃO:<br />
 {% for problem in problems %}
 - {{problem}}<br />
 {% endfor %}
 </p>
 <br />
 
-<a href="{% url "helios.views.voters_upload_cancel" election.uuid %}">{% trans "never mind, upload a different file" %}</a>
+<a href="{% url "election@voters@upload-cancel" election.uuid %}">deixa pra lá, enviar um arquivo diferente</a>
 </p>
-</div>
-<div class="col-md-12">
-{% else %}
 
-<form method="post" role="form" class="form" action="" id="upload_form">
- <input type="hidden" name="confirm_p" value="1" />  
-<div class="form-group">
-  <label for="upload">{% trans "Does this look right to you?" %}</label>
- </div>
- <div class="form-group">
-   <input id="upload" class="btn btn-primary" type="submit" value="{% trans "Yes, let's go" %}" />
-</div>
+{% else %}
+<p></p>
+<form method="post" action="" id="upload_form">
+  Isso parece correto para você?
+  <input type="hidden" name="confirm_p" value="1" />
+  <input class="button" type="submit" value="Sim, vamos lá" />
 </form>
-<div class="form-group">
-<a class="btn btn-danger" href="{% url "helios.views.voters_upload_cancel" election.uuid %}">{% trans "no, let me upload a different file" %}</a>
- <a class="btn btn-danger" href="{% url "helios.views.one_election_view" election.uuid %}"> {% trans "back to election" %}</a>
-</div>
-</div>
+
+<a href="{% url "election@voters@upload-cancel" election.uuid %}">não, quero enviar um arquivo diferente</a>
 
 {% endif %}
 

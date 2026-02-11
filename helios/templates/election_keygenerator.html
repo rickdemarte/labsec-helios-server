@@ -1,5 +1,4 @@
 {% extends "helios/templates/cryptobase.html" %}
-{% load i18n %}
 {% block content %}
 <script language="javascript">
 
@@ -36,7 +35,7 @@ $(document).ready(function() {
     $('#generator').hide();
 
     // get some more server-side randomness for keygen
-    $.getJSON('../../get-randomness', function(result) {
+    $.getJSON('{% url "election@get-randomness" election.uuid %}', function(result) {
        sjcl.random.addEntropy(result.randomness);
        BigInt.setup(function() {
           ELGAMAL_PARAMS = ElGamal.Params.fromJSONObject({{eg_params_json|safe}});
@@ -77,83 +76,102 @@ function show_sk() {
 }
 
 function download_sk() {
-    UTILS.open_window_with_content(jQuery.toJSON(SECRET_KEY), "application/json");
+    $('#pk_content').show();
+    $('#sk_content').html(jQuery.toJSON(SECRET_KEY));
+}
+
+function download_sk_to_file(filename) {
+    var element = document.createElement('a');
+    element.setAttribute('href','data:text/plain;charset=utf-8,'+ encodeURIComponent(jQuery.toJSON(SECRET_KEY)));
+    element.setAttribute('download', filename);
+    element.style.display = 'none';
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
 }
 
 function show_pk() {
     $('#sk_download').hide();
+    $('#pk_content').hide();
     $('#pk_hash').show();
     $('#pk_form').show();
 }
 
 </script>
-<div id="header">
-<h2 class="title">{% trans "Trustee" %} {{trustee.name}} &mdash; {% trans "Key Setup" %}</h2>
-<h3 class="title">{{election.name}}</h3>
-</div>
+
+<h2 class="title">{{election.name}} &mdash; Trustee {{trustee.name}} &mdash; Configuração de Chave</h2>
 
 <p>
- {% trans "As a trustee, it's time to set up your key for this election." %}
+  Como trustee, chegou a hora de configurar sua chave para esta eleição.
 </p>
 
 <p id="waiting_message">
-  {% trans "Please wait for the generator to load..." %}
+  Aguarde o gerador carregar...
 </p>
 
 <p id="generator">
 
-<span id="buttons"><button class="btn btn-primary" onclick="generate_keypair(); return false;" id="generate_button" class="btn btn-primary">{% trans "Generate Election Keys" %}</button></span>
+<span id="buttons"><button class="button" onclick="generate_keypair(); return false;" id="generate_button">Gerar chaves da eleição</button></span>
 
-<br /><br />
-{% trans "If you've already generated a keypair, you can" %} <a href="javascript:show_key_reuse()">{% trans "reuse it" %}</a>.
+<br />
+Se você já gerou um par de chaves, pode <a href="javascript:show_key_reuse()">reutilizá-lo</a>.
 </p>
 
 <div id="reuse">
-<h3>{% trans "Reusing a Key" %}</h3>
+<h3>Reutilizar uma chave</h3>
 
 <p>
-{% trans "Enter your complete secret key below:" %}
+Digite sua chave secreta completa abaixo:
 </p>
 <form onsubmit="reuse_key(this.secret_key.value); return false;">
 <textarea cols="80" rows="5" wrap="soft" name="secret_key">
 </textarea>
 <br />
-<input class="btn btn-primary" type="submit" value="{% trans "reuse" %}" />
+<input class="button" type="submit" value="reutilizar" />
 </form>
 </div>
 
 <div id="sk_download">
-<h3>{% trans "Your Secret Key" %}</h3>
+<h3>Sua chave secreta</h3>
 <span id="clear_button">
-{% trans "Your key has been generated, but you may choose to" %}<br /><a href="javascript:clear_keys();">{% trans "clear it from memory and start from scratch</a> if you prefer." %}<br />
-
+Sua chave foi gerada, mas se você preferir, pode<br /><a href="javascript:clear_keys();">limpá-la da memória e começar do zero</a>.<br />
 </span>
-<br />
-<p>
-    <button class="btn btn-primary" onclick="download_sk(); $('#pk_link').show();">{% trans "Save your secret key" %}</button>
-</p>
 
-<p style="display: none;" id="pk_link">
-  <a href="javascript:show_pk();">{% trans "ok, I've saved the key, let's move on" %}</a>.
+<p>
+    <button class="button large" onclick="download_sk(); $('#pk_link').show();">Mostrar minha chave secreta</button>
 </p>
 </div>
 
-<form method="post" id="pk_form" action="{% url "helios.views.trustee_upload_pk" election.uuid trustee.uuid %}">
+<div style="display:none;" id="pk_content">
+    <p>Abaixo está o conteúdo da sua chave secreta de trustee. Copie e salve com segurança. <br>
+       Você também pode clicar para baixar em um arquivo.
+       E não perca essa chave! Caso contrário, não será possível descriptografar a apuração da eleição.<br>
+    </p>
+    <textarea id="sk_content" rows="5" wrap="soft" cols="50" style="height: 25em;"></textarea>
+</div>
 
-<h3>{% trans "Your Public Key" %}</h3>
+<div style="display:none;" id="pk_link">
 <p>
-    {% trans "It's time to upload the public key to the server." %}
+<a id="download_to_file" href="javascript:download_sk_to_file('trustee_key_for_{{election.name}}.txt');">baixar a chave privada em um arquivo</a>
 </p>
 <p>
-    {% trans "The fingerprint of your public key is:" %} <tt id="pk_hash" style="font-size: 1.5em; font-weight: bold;"></tt>.<br />
-    {% blocktrans %}
-    You may want to save this to confirm that your public key was properly stored by the server.<br />
-    (Your public key is not currently being displayed because you do not need to save it, the fingerprint is sufficient.)
-    {% endblocktrans %}
+  <a href="javascript:show_pk();">ok, já salvei a chave, vamos continuar</a>
+</p>
+</div>
+
+<form method="post" id="pk_form" action="{% url "election@trustee@upload-pk" election.uuid trustee.uuid %}">
+<h3>Sua chave pública</h3>
+<p>
+    Agora é hora de enviar a chave pública para o servidor.
+</p>
+<p>
+    A impressão digital da sua chave pública é: <tt id="pk_hash" style="font-size: 1.5em; font-weight: bold;"></tt>.<br />
+    Você pode querer salvar isso para confirmar que sua chave pública foi armazenada corretamente pelo servidor.<br />
+    (Sua chave pública não está sendo exibida no momento porque você não precisa salvá-la; a impressão digital é suficiente.)
 </p>
 <textarea id="pk_textarea" name="public_key_json" cols="80" rows="10" style="display:none;">
 </textarea>
-<input class="btn btn-primary" type="submit" value="{% trans "Upload your public key" %}">
+<input class="button" type="submit" value="Enviar sua chave pública">
 </form>
 
 <div id="applet_div"></div>

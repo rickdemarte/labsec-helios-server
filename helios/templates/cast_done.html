@@ -1,28 +1,27 @@
-{% extends TEMPLATE_BASENONAV %}
-{% load i18n %}
-{% block title %}Voto depositado!{% endblock %}
+{% extends TEMPLATE_BASE %}
+{% block title %}Confirmar voto{% endblock %}
 
 {% block content %}
-<h2>{{election.name}}</h2>
-<br>
-<h4>
-{% blocktrans %}
-    Congratulations, your vote has been <b><u>successfully cast</u></b>!
-{% endblocktrans %}
-</h4>
-<br>
-<p>
-<span class="alert alert-info" role="alert">
+<h1>{{election.name}} &mdash; Voto registrado com sucesso!</h1>
 
-{% trans "Your smart ballot tracker is:" %}
-  <tt style="font-size: 10pt;width: 10em; word-wrap: break-word; font-weight: bold; ">  {{vote_hash}}</tt>
-</span>
+{% if vote_hash %}
+<p>
+  Seu rastreador de cédula é:<br />
+    <span style="font-size:1.4em; font-weight: bold; word-break: break-word;">  {{vote_hash}}</span>
 </p>
-<br><br>
+<p>
+  Este rastreador de cédula garante matematicamente que sua cédula foi contabilizada. Você pode verificar todos os rastreadores acessando a <a href="{% url "election@voters@list-pretty" election.uuid %}">lista de eleitores</a>, onde seu rastreador deve aparecer em alguns minutos.
+</p>
+{% endif %}
+
 {% if logout %}
-<p><span>{% trans "For your safety, we have logged you out." %}</span></p>
-<iframe width="0" height="0" border="0" frameborder="0" src="/auth/logout">
+<p><b>Para sua segurança, encerramos sua sessão.</b></p>
+<iframe width="0" height="0" border="0" frameborder="0" src="{% url "auth@logout" %}">
 </iframe>
 {% endif %}
+
+<p style="font-size: 1.4em;">
+[ <a href="{% url "election@view" election.uuid %}">voltar para informações da eleição</a> ]
+</p>
 
 {% endblock %}

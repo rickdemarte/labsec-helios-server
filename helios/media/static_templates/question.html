@@ -1,129 +1,480 @@
-
 {#foreach $T.questions as question}
-<div id="q_view_{$T.question$index}" tabindex="{$T.question$index}" class="question">
-<h4>
-{$T.question$index + 1}. {$T.question.question} (selecionar entre {$T.question.min} e {#if $T.question.max != null}{$T.question.max}{#else}ilimitado{#/if} resposta(s).)
-{#if $T.admin_p}
-{#if $T.question$index > 0} <a href="javascript:question_move_up({$T.question$index});"><i title="Mover questão para cima (reordenar)." class="glyphicon glyphicon-arrow-up"></i></a>&nbsp;{#/if}
- <a  onclick="return confirm('Tem certeza de que deseja remover a questão?');" href="javascript:question_remove({$T.question$index})"><i title="Remover Questão" class="glyphicon glyphicon-remove"></i></a> <a href="javascript:question_edit({$T.question$index})"><i title="Editar Questão" class="glyphicon glyphicon-edit"></i></a> {#/if}</h4>
-<ul>
-{#foreach $T.question.answers as answer}
-<li> {$T.answer}
-{#if $T.question.answer_urls[$T.answer$index]}
-  [<a target="_new" href="{$T.question.answer_urls[$T.answer$index]}">mais</a>]
-{#/if}
-</li>
-{#/for}
-</ul>
-</div>
-<div class="row">
-<div class="col-md-12">
-
-<div id="q_edit_{$T.question$index}" style="display:none;" class="well">
-<form class="form-horizontal" role="form" id="question_edit_{$T.question$index}_form" onsubmit="question_update({$T.question$index}, this); return false;" action="#">
-  <div class="form-group">
-      <div id="result_type" style="display:none;">
-      <input type="hidden" name="choice_type" value="approval" />
-      <select name="result_type">
-          <option selected>absoluta</option>
-          <option>relative</option>
-      </select>
-      </div>
+<div id="q_view_{$T.question$index}" class="question-card">
+  <div class="question-header">
+    <h4 class="question-title">
+      {#if $T.admin_p}
+      <span class="question-actions">
+        {#if $T.question$index > 0}[<a href="javascript:question_move_up({$T.question$index});">↑</a>]{#/if}
+        [<a href="javascript:question_edit({$T.question$index})">editar</a>]
+        [<a href="javascript:question_remove({$T.question$index})" onclick="return confirm('Tem certeza que deseja remover esta pergunta?');">×</a>]
+      </span>
+      {#/if}
+      <span class="question-number">{$T.question$index + 1}.</span> {$T.question.question}
+    </h4>
   </div>
-
-<div class="table-responsive">
-
-<table class="table table-striped form-group" id="answer_table_{$T.question$index}">
-  <tbody>
-    <tr><th colspan="2">Questão:</th><td><input type="text" name="question" size="70" /></td></tr>
-    <tr><th colspan="2"></th>
-    <td>
-      O eleitor deve selecionar no mínimo
-      <select name="min">
-          <option selected>0</option>
-      {#for option_index = 1 to 20}
-          <option>{$T.option_index}</option>
-      {#/for}
-      </select>
-      e
-      <select name="max">
-          <option>0</option>
-          <option selected>1</option>
-      {#for option_index = 2 to 50}
-          <option>{$T.option_index}</option>
-      {#/for}
-          <option value="">- (ilimitado)</option>
-      </select>
-       alternativas.</td></tr>
-</td>
-    </tr>
-  </tbody>
-  <tfoot>
-    <tr><th colspan="2"></th><th><a href="javascript:add_answers($('#answer_table_{$T.question$index}'),5)">adicionar mais 5 respostas</a> <i title="Se precisar mais campos de resposta. Não vai ser necessário preencher todos." class="glyphicon glyphicon-question-sign"></i></th></tr>
-    <tr><td colspan="3"><button type="submit" class="btn btn-primary">atualizar questão </button> <button type="reset" class="btn btn-danger" onclick="question_edit_cancel({$T.question$index});">cancelar</button></td></tr>
-  </tfoot>
-
-</table>
-</div>
-</div>
-</form>
-
-
-{#else}
-<span class="alert alert-info">nenhuma questão ainda</span>
-{#/for}
-</div>
-</div> <!-- end div row -->
-{#if $T.admin_p}
-<br><br><br>
-<div class="row">
-<div class="panel panel-primary">
-<div class="panel-heading">Adicionar Questão:</div>
-<div class="panel-body">
-<form class="form-horizontal" role="form" id="question_form" onsubmit="question_add(this); return false;" action="#">
-    <div class="form-group">
-        <div id="result_type" style="display:none;">
-        <input type="hidden" name="choice_type" value="approval" />
-        <select name="result_type">
-            <option selected>absoluta</option>
-            <option>relative</option>
-        </select>
-        </div>
-    </div>
-<div class="form-group table-responsive">
-    <table class="table table-striped" id="answer_table">
-      <tbody>
-     <tr><th colspan="2">Questão:</th><td><input type="text" name="question" size="70" /> <i title="A pergunta a ser feita ao eleitor." class="glyphicon glyphicon-question-sign"></i></td></tr>
-        <tr><th colspan="2"></th><td>
-    O eleitor deve selecionar no mínimo
-    <select name="min">
-        <option selected>0</option>
-    {#for option_index = 1 to 20}
-        <option>{$T.option_index}</option>
+  
+  <div class="question-meta">
+    <span class="meta-item">
+      <span class="meta-label">Seleção:</span> {$T.question.min} a {#if $T.question.max != null}{$T.question.max}{#else}ilimitado{#/if}
+    </span>
+    <span class="meta-item">
+      <span class="meta-label">Tipo de resultado:</span> {$T.question.result_type}
+    </span>
+    {#if $T.question.randomize_answer_order}
+    <span class="meta-item">
+      <span class="meta-label">Ordem:</span> aleatória
+    </span>
+    {#/if}
+  </div>
+  
+  <ul class="answers-list">
+    {#foreach $T.question.answers as answer}
+    <li class="answer-item">
+      <span class="answer-text">{$T.answer}</span>
+      {#if $T.question.answer_urls[$T.answer$index]}
+        <a class="answer-link" target="_blank" href="{$T.question.answer_urls[$T.answer$index]}" title="Mais informações">
+          <span class="link-icon">🔗</span>
+        </a>
+      {#/if}
+    </li>
     {#/for}
-    </select>
+  </ul>
+</div>
 
-     e no máximo
-
-    <select name="max">
+<div id="q_edit_{$T.question$index}" class="question-edit-card" style="display:none;">
+  <form id="question_edit_{$T.question$index}_form" onsubmit="question_update({$T.question$index}, this); return false;" action="#">
+    <div class="form-header">
+      <h4 class="edit-title">Editar pergunta {$T.question$index + 1}</h4>
+    </div>
+    
+    <input type="hidden" name="choice_type" value="approval" />
+    
+    <div class="form-group">
+      <label class="form-label">Texto da pergunta</label>
+      <input type="text" name="question" class="form-control question-input" placeholder="Digite sua pergunta aqui" />
+    </div>
+    
+    <div class="form-row-compact">
+      <span class="form-label-inline">Selecione entre</span>
+      <select name="min" class="form-control-inline">
+        <option selected>0</option>
+        {#for option_index = 1 to 20}
+        <option>{$T.option_index}</option>
+        {#/for}
+      </select>
+      <span class="form-label-inline">e</span>
+      <select name="max" class="form-control-inline">
         <option>0</option>
         <option selected>1</option>
-    {#for option_index = 2 to 50}
+        {#for option_index = 2 to 50}
         <option>{$T.option_index}</option>
-    {#/for}
-        <option value="">- (ilimitado)</option>
-    </select>
-     alternativas.</td></tr>
-      </tbody>
-      <tfoot>
-        <tr><th colspan="2"></th><th><a href="javascript:add_answers($('#answer_table'), 5)">adicionar mais 5 respostas</a> <i title="Se precisar mais campos de resposta. Não vai ser necessário preencher todos." class="glyphicon glyphicon-question-sign"></i></th></tr>
-        <tr><td colspan="2"><button type="submit" class="btn btn-primary">adicionar questão</button></td></tr>
-      </tfoot>
-
-    </table>
+        {#/for}
+        <option value="">∞</option>
+      </select>
+      <span class="form-label-inline">respostas.</span>
+      <span class="form-label-inline" style="margin-left: 15px;">Tipo de resultado:</span>
+      <select name="result_type" class="form-control-inline">
+        <option selected>absoluto</option>
+        <option>relativo</option>
+      </select>
+      <span class="form-label-inline" style="margin-left: 15px;">Ordem aleatória:</span>
+      <select name="randomize_answer_order" class="form-control-inline">
+        <option selected value="0">Não</option>
+        <option value="1">Sim</option>
+      </select>
     </div>
-</form>
+    
+    <div class="answers-section">
+      <h5 class="section-title">Opções de resposta</h5>
+      <div id="answer_table_{$T.question$index}" class="answers-container">
+        <!-- As respostas serão adicionadas dinamicamente aqui -->
+      </div>
+      <button type="button" class="btn-secondary" onclick="add_answers($('#answer_table_{$T.question$index}'), 5)">
+        + Adicionar mais 5 respostas
+      </button>
+    </div>
+    
+    <div class="form-actions">
+      <button type="submit" class="btn-primary">Atualizar pergunta</button>
+      <button type="button" class="btn-secondary" onclick="question_edit_cancel({$T.question$index});">Cancelar</button>
+    </div>
+  </form>
 </div>
+{#else}
+<div class="no-questions">
+  <p>Ainda não foi adicionada nenhuma pergunta.</p>
 </div>
+{#/for}
+
+{#if $T.admin_p}
+<div class="add-question-section">
+  <h4 class="section-header">Adicionar nova pergunta</h4>
+  <form id="question_form" class="question-form" onsubmit="question_add(this); return false;" action="#">
+    <input type="hidden" name="choice_type" value="approval" />
+    
+    <div class="form-group">
+      <label class="form-label">Texto da pergunta</label>
+      <input type="text" name="question" class="form-control question-input" placeholder="Digite sua pergunta aqui" required />
+    </div>
+    
+    <div class="form-row-compact">
+      <span class="form-label-inline">Selecione entre</span>
+      <select name="min" class="form-control-inline">
+        <option selected>0</option>
+        {#for option_index = 1 to 20}
+        <option>{$T.option_index}</option>
+        {#/for}
+      </select>
+      <span class="form-label-inline">e</span>
+      <select name="max" class="form-control-inline">
+        <option>0</option>
+        <option selected>1</option>
+        {#for option_index = 2 to 50}
+        <option>{$T.option_index}</option>
+        {#/for}
+        <option value="">∞</option>
+      </select>
+      <span class="form-label-inline">respostas.</span>
+      <span class="form-label-inline" style="margin-left: 15px;">Tipo de resultado:</span>
+      <select name="result_type" class="form-control-inline">
+        <option selected>absoluto</option>
+        <option>relativo</option>
+      </select>
+      <span class="form-label-inline" style="margin-left: 15px;">Ordem aleatória:</span>
+      <select name="randomize_answer_order" class="form-control-inline">
+        <option selected value="0">Não</option>
+        <option value="1">Sim</option>
+      </select>
+    </div>
+    
+    <div class="answers-section">
+      <h5 class="section-title">Opções de resposta</h5>
+      <div id="answer_table" class="answers-container">
+        <!-- As respostas serão adicionadas dinamicamente aqui -->
+      </div>
+      <button type="button" class="btn-secondary" onclick="add_answers($('#answer_table'), 5)">
+        + Adicionar mais 5 respostas
+      </button>
+    </div>
+    
+    <div class="form-actions">
+      <button type="submit" class="btn-primary">Adicionar pergunta</button>
+    </div>
+  </form>
 </div>
 {#/if}
+
+<style>
+/* Question Cards */
+.question-card {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.question-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.question-title {
+  margin: 0;
+  font-size: 1.25em;
+  color: #333;
+  flex: 1;
+  white-space: pre-line;
+}
+
+.question-number {
+  color: #666;
+  font-weight: normal;
+}
+
+.question-actions {
+  margin-right: 10px;
+  font-size: 0.9em;
+}
+
+.question-actions a {
+  color: #1976d2;
+  text-decoration: none;
+  padding: 0 3px;
+}
+
+.question-actions a:hover {
+  text-decoration: underline;
+}
+
+.question-meta {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 15px;
+  font-size: 0.9em;
+}
+
+.meta-item {
+  color: #666;
+}
+
+.meta-label {
+  font-weight: 500;
+  color: #444;
+}
+
+.answers-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.answer-item {
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.answer-item:last-child {
+  border-bottom: none;
+}
+
+.answer-text {
+  flex: 1;
+}
+
+.answer-link {
+  color: #1976d2;
+  text-decoration: none;
+  font-size: 1.1em;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.answer-link:hover {
+  background: #e3f2fd;
+}
+
+/* Edit Form */
+.question-edit-card {
+  background: #fff;
+  border: 2px solid #1976d2;
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.form-header {
+  margin-bottom: 20px;
+}
+
+.edit-title {
+  margin: 0;
+  color: #1976d2;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 15px;
+  margin-bottom: 25px;
+}
+
+.form-row .form-group {
+  margin-bottom: 0;
+}
+
+.form-row-compact {
+  margin-bottom: 25px;
+  line-height: 2.5;
+}
+
+.form-label-inline {
+  font-weight: 500;
+  color: #444;
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
+.form-control-inline {
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 13px;
+  transition: border-color 0.2s;
+}
+
+.form-control-inline:focus {
+  outline: none;
+  border-color: #1976d2;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.1);
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 500;
+  color: #444;
+  font-size: 0.9em;
+}
+
+.form-control {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  transition: border-color 0.2s;
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: #1976d2;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.1);
+}
+
+.question-input {
+  font-size: 16px;
+}
+
+/* Answers Section */
+.answers-section {
+  background: #f8f9fa;
+  padding: 20px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+}
+
+.section-title {
+  margin: 0 0 15px 0;
+  font-size: 1.1em;
+  color: #333;
+}
+
+.answers-container {
+  margin-bottom: 15px;
+}
+
+.answer-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: start;
+  margin-bottom: 12px;
+  padding: 12px;
+  background: white;
+  border-radius: 4px;
+  border: 1px solid #e0e0e0;
+}
+
+.answer-number {
+  font-weight: 500;
+  color: #666;
+  padding-top: 8px;
+}
+
+.answer-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.answer-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.url-toggle {
+  color: #1976d2;
+  cursor: pointer;
+  font-size: 0.85em;
+  margin-left: 10px;
+  font-weight: normal;
+}
+
+.url-toggle:hover {
+  text-decoration: underline;
+}
+
+.url-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.url-input {
+  flex: 1;
+}
+
+/* Buttons */
+.btn-primary, .btn-secondary {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-primary {
+  background: #1976d2;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #1565c0;
+}
+
+.btn-secondary {
+  background: #f5f5f5;
+  color: #444;
+  border: 1px solid #ddd;
+}
+
+.btn-secondary:hover {
+  background: #e8e8e8;
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-start;
+  align-items: center;
+  margin-top: 20px;
+}
+
+/* Add Question Section */
+.add-question-section {
+  background: #f8f9fa;
+  border: 2px dashed #ddd;
+  border-radius: 8px;
+  padding: 24px;
+  margin-top: 30px;
+}
+
+.section-header {
+  margin: 0 0 20px 0;
+  color: #333;
+}
+
+.no-questions {
+  text-align: center;
+  padding: 40px;
+  color: #666;
+}
+</style>

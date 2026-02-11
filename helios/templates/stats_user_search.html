@@ -1,0 +1,83 @@
+{% extends TEMPLATE_BASE %}
+{% block title %}Buscar usuário{% endblock %}
+
+{% block content %}
+<h1>Buscar usuário</h1>
+
+<p>
+<form method="get" action="{% url "stats@user-search" %}">
+<b>Buscar por usuário</b>: <input type="text" name="q" value="{{q}}" placeholder="Nome ou ID do usuário"/>
+<input class="small button" type="submit" value="buscar" /> <a class="small button" href="?">limpar busca</a>
+</form>
+</p>
+
+{% if q %}
+  {% if users_with_elections %}
+    <p><b>Encontrado(s) {{users_with_elections|length}} usuário(s)</b></p>
+
+    {% for item in users_with_elections %}
+    <div style="margin-bottom: 2em; padding: 1em; border: 1px solid #ccc;">
+      <h2>{{item.user.pretty_name}}</h2>
+      <p>
+        <b>ID do usuário:</b> {{item.user.user_id}}<br/>
+        <b>Tipo de usuário:</b> {{item.user.user_type}}<br/>
+        <b>Admin do site:</b> {% if item.user.admin_p %}Sim{% else %}Não{% endif %}
+      </p>
+
+      <h3>Eleições como administrador ({{item.elections_as_admin|length}})</h3>
+      {% if item.elections_as_admin %}
+        <ul>
+        {% for election in item.elections_as_admin %}
+          <li>
+            <a href="{% url "election@view" election.uuid %}">{{election.name}}</a>
+            ({{election.num_voters}} eleitores / {{election.num_cast_votes}} votos registrados)
+            {% if election.frozen_at %}[congelada]{% endif %}
+            {% if election.archived_at %}[arquivada]{% endif %}
+          </li>
+        {% endfor %}
+        </ul>
+      {% else %}
+        <p><i>Nenhuma</i></p>
+      {% endif %}
+
+      <h3>Eleições como eleitor ({{item.elections_as_voter|length}})</h3>
+      {% if item.elections_as_voter %}
+        <ul>
+        {% for election in item.elections_as_voter %}
+          <li>
+            <a href="{% url "election@view" election.uuid %}">{{election.name}}</a>
+            ({{election.num_voters}} eleitores / {{election.num_cast_votes}} votos registrados)
+            {% if election.frozen_at %}[congelada]{% endif %}
+            {% if election.archived_at %}[arquivada]{% endif %}
+          </li>
+        {% endfor %}
+        </ul>
+      {% else %}
+        <p><i>Nenhuma</i></p>
+      {% endif %}
+
+      <h3>Eleições como trustee ({{item.elections_as_trustee|length}})</h3>
+      {% if item.elections_as_trustee %}
+        <ul>
+        {% for election in item.elections_as_trustee %}
+          <li>
+            <a href="{% url "election@view" election.uuid %}">{{election.name}}</a>
+            ({{election.num_voters}} eleitores / {{election.num_cast_votes}} votos registrados)
+            {% if election.frozen_at %}[congelada]{% endif %}
+            {% if election.archived_at %}[arquivada]{% endif %}
+          </li>
+        {% endfor %}
+        </ul>
+      {% else %}
+        <p><i>Nenhuma</i></p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  {% else %}
+    <p><i>Nenhum usuário encontrado para "{{q}}"</i></p>
+  {% endif %}
+{% else %}
+  <p><i>Digite um termo de busca para encontrar usuários</i></p>
+{% endif %}
+
+{% endblock %}
