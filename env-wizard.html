@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Helios .env Wizard</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #22c55e;
+      --accent-2: #06b6d4;
+      --border: #1f2937;
+      --input: #0b1220;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Space Grotesk", "Work Sans", "Segoe UI", sans-serif;
+      background: radial-gradient(1200px 800px at 20% -10%, #1e293b 0%, #0f172a 40%, #0b1120 100%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      width: min(980px, 100%);
+      background: color-mix(in oklab, var(--panel) 88%, black 12%);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 28px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.35);
+    }
+    header {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    h1 {
+      font-size: 28px;
+      margin: 0;
+      letter-spacing: 0.2px;
+    }
+    .sub {
+      color: var(--muted);
+      font-size: 14px;
+    }
+    h2 { margin: 14px 0 12px; font-size: 18px; }
+    .step {
+      display: none;
+      animation: fadeIn 240ms ease-out;
+    }
+    .step.active { display: block; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+    @media (min-width: 860px) {
+      .grid { grid-template-columns: 1fr 1fr; }
+    }
+    label {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 6px;
+      display: block;
+    }
+    input, select {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--input);
+      color: var(--text);
+      outline: none;
+    }
+    input:focus, select:focus {
+      border-color: var(--accent-2);
+      box-shadow: 0 0 0 2px rgba(6,182,212,0.2);
+    }
+    input[readonly] {
+      opacity: 0.9;
+      border-style: dashed;
+      cursor: not-allowed;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: end;
+    }
+    button {
+      border: 1px solid var(--border);
+      background: #0b1220;
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+    button.primary {
+      background: linear-gradient(90deg, #22c55e, #06b6d4);
+      color: #0b1120;
+      font-weight: 600;
+      border: none;
+    }
+    button.ghost {
+      background: transparent;
+    }
+    .actions {
+      display: flex;
+      gap: 10px;
+      justify-content: space-between;
+      margin-top: 18px;
+    }
+    .progress {
+      height: 6px;
+      background: #0b1220;
+      border-radius: 999px;
+      overflow: hidden;
+      margin: 14px 0 22px;
+      border: 1px solid var(--border);
+    }
+    .progress > div {
+      height: 100%;
+      background: linear-gradient(90deg, #22c55e, #06b6d4);
+      width: 0%;
+      transition: width 200ms ease;
+    }
+    .output {
+      background: #0b1220;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      white-space: pre;
+      overflow: auto;
+      min-height: 160px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 12px;
+      color: #e2e8f0;
+    }
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <header>
+      <h1>Helios .env Wizard</h1>
+      <div class="sub">Preencha os campos e gere seu arquivo .env (formato do helios-server-ptbr)</div>
+    </header>
+    <div class="progress"><div id="progress-bar"></div></div>
+
+    <div class="actions" style="margin-top: 0; margin-bottom: 18px;">
+      <button type="button" id="prev" class="ghost">Voltar</button>
+      <button type="button" id="next" class="primary">Avançar</button>
+    </div>
+
+    <section class="step active" data-step="1">
+      <h2>1. Django / App</h2>
+      <div class="grid">
+        <div>
+          <label for="DEBUG">DEBUG</label>
+          <input id="DEBUG" type="checkbox" checked />
+        </div>
+        <div>
+          <label for="DJANGO_DEBUG_SERVER">DJANGO_DEBUG_SERVER</label>
+          <input id="DJANGO_DEBUG_SERVER" type="checkbox" checked />
+        </div>
+        <div>
+          <label for="LANGUAGE_CODE">LANGUAGE_CODE</label>
+          <input id="LANGUAGE_CODE" value="pt-br" />
+        </div>
+        <div>
+          <label for="SECRET_KEY">SECRET_KEY</label>
+          <div class="row">
+            <input id="SECRET_KEY" value="changeme" />
+            <button type="button" data-gen="SECRET_KEY">Gen</button>
+          </div>
+        </div>
+        <div>
+          <label for="ALLOWED_HOSTS">ALLOWED_HOSTS</label>
+          <input id="ALLOWED_HOSTS" value="localhost,127.0.0.1,0.0.0.0" />
+        </div>
+        <div>
+          <label for="DEVLOGIN_ALLOWED_HOSTS">DEVLOGIN_ALLOWED_HOSTS</label>
+          <input id="DEVLOGIN_ALLOWED_HOSTS" value="localhost,127.0.0.1,0.0.0.0" />
+        </div>
+      </div>
+    </section>
+
+    <section class="step" data-step="2">
+      <h2>2. Database (Postgres)</h2>
+      <div class="grid">
+        <div>
+          <label for="DB_SSL_REQUIRE">DB_SSL_REQUIRE</label>
+          <input id="DB_SSL_REQUIRE" type="checkbox" />
+        </div>
+        <div></div>
+
+        <div>
+          <label for="POSTGRES_DB">POSTGRES_DB</label>
+          <input id="POSTGRES_DB" value="helios" />
+        </div>
+        <div>
+          <label for="POSTGRES_USER">POSTGRES_USER</label>
+          <input id="POSTGRES_USER" value="helios" />
+        </div>
+        <div>
+          <label for="POSTGRES_PASSWORD">POSTGRES_PASSWORD</label>
+          <div class="row">
+            <input id="POSTGRES_PASSWORD" value="helios" />
+            <button type="button" data-gen="POSTGRES_PASSWORD">Gen</button>
+          </div>
+        </div>
+        <div>
+          <label for="POSTGRES_HOST">POSTGRES_HOST</label>
+          <input id="POSTGRES_HOST" value="db" />
+        </div>
+        <div>
+          <label for="POSTGRES_PORT">POSTGRES_PORT</label>
+          <input id="POSTGRES_PORT" value="5432" />
+        </div>
+        <div>
+          <label for="DATABASE_URL">DATABASE_URL (gerada automaticamente)</label>
+          <input id="DATABASE_URL" value="" readonly />
+          <div class="hint">Montada a partir de POSTGRES_* (como no .env do projeto).</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="step" data-step="3">
+      <h2>3. RabbitMQ / Celery</h2>
+      <div class="grid">
+        <div>
+          <label for="START_CELERY">START_CELERY</label>
+          <input id="START_CELERY" type="checkbox" checked />
+        </div>
+        <div></div>
+
+        <div>
+          <label for="RABBITMQ_DEFAULT_USER">RABBITMQ_DEFAULT_USER</label>
+          <input id="RABBITMQ_DEFAULT_USER" value="helios" />
+        </div>
+        <div>
+          <label for="RABBITMQ_DEFAULT_PASS">RABBITMQ_DEFAULT_PASS</label>
+          <div class="row">
+            <input id="RABBITMQ_DEFAULT_PASS" value="helios" />
+            <button type="button" data-gen="RABBITMQ_DEFAULT_PASS">Gen</button>
+          </div>
+        </div>
+        <div>
+          <label for="RABBITMQ_HOST">RABBITMQ_HOST</label>
+          <input id="RABBITMQ_HOST" value="rabbitmq" />
+        </div>
+        <div>
+          <label for="RABBITMQ_PORT">RABBITMQ_PORT</label>
+          <input id="RABBITMQ_PORT" value="5672" />
+        </div>
+        <div>
+          <label for="CELERY_BROKER_URL">CELERY_BROKER_URL (gerada automaticamente)</label>
+          <input id="CELERY_BROKER_URL" value="" readonly />
+          <div class="hint">Montada a partir de RABBITMQ_* (como no .env do projeto).</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="step" data-step="4">
+      <h2>4. Site / Segurança</h2>
+      <div class="grid">
+        <div>
+          <label for="URL_HOST">URL_HOST</label>
+          <input id="URL_HOST" value="https://e-democracia.ufsc.br/" />
+        </div>
+        <div>
+          <label for="SECURE_URL_HOST">SECURE_URL_HOST</label>
+          <input id="SECURE_URL_HOST" value="https://e-democracia.ufsc.br/" />
+        </div>
+        <div>
+          <label for="HELIOS_ADMIN_ONLY">Apenas administradores criam eleições</label>
+          <input id="HELIOS_ADMIN_ONLY" type="checkbox" checked />
+          <div class="hint">Quando marcado, define HELIOS_ADMIN_ONLY=1.</div>
+        </div>
+        <div>
+          <label for="SSL">SSL</label>
+          <input id="SSL" type="checkbox" checked />
+        </div>
+        <div>
+          <label for="CSRF_TRUSTED_ORIGINS">CSRF_TRUSTED_ORIGINS</label>
+          <input id="CSRF_TRUSTED_ORIGINS" value="https://e-democracia.ufsc.br" />
+        </div>
+      </div>
+    </section>
+
+    <section class="step" data-step="5">
+      <h2>5. Email</h2>
+      <div class="grid">
+        <div>
+          <label>Email provider</label>
+          <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap; padding: 6px 0 2px;">
+            <label style="display:flex; gap:8px; align-items:center; margin:0; color: var(--text); font-size: 13px;">
+              <input type="radio" name="EMAIL_USE_AWS" value="1" checked />
+              SES (AWS)
+            </label>
+            <label style="display:flex; gap:8px; align-items:center; margin:0; color: var(--text); font-size: 13px;">
+              <input type="radio" name="EMAIL_USE_AWS" value="0" />
+              Desativado
+            </label>
+          </div>
+          <div class="hint">Gera EMAIL_USE_AWS=1 (SES) ou 0 (desativado).</div>
+        </div>
+
+        <div>
+          <label for="AWS_REGION">AWS_REGION</label>
+          <select id="AWS_REGION">
+            <option value="us-east-1">us-east-1 (N. Virginia)</option>
+            <option value="us-east-2">us-east-2 (Ohio)</option>
+            <option value="us-west-1">us-west-1 (N. California)</option>
+            <option value="us-west-2" selected>us-west-2 (Oregon)</option>
+            <option value="sa-east-1">sa-east-1 (São Paulo)</option>
+            <option value="eu-west-1">eu-west-1 (Ireland)</option>
+            <option value="eu-west-2">eu-west-2 (London)</option>
+            <option value="eu-west-3">eu-west-3 (Paris)</option>
+            <option value="eu-north-1">eu-north-1 (Stockholm)</option>
+            <option value="eu-central-1">eu-central-1 (Frankfurt)</option>
+            <option value="ap-south-1">ap-south-1 (Mumbai)</option>
+            <option value="ap-south-2">ap-south-2 (Hyderabad)</option>
+            <option value="ap-southeast-1">ap-southeast-1 (Singapore)</option>
+            <option value="ap-southeast-2">ap-southeast-2 (Sydney)</option>
+            <option value="ap-southeast-3">ap-southeast-3 (Jakarta)</option>
+            <option value="ap-southeast-4">ap-southeast-4 (Melbourne)</option>
+            <option value="ap-northeast-1">ap-northeast-1 (Tokyo)</option>
+            <option value="ap-northeast-2">ap-northeast-2 (Seoul)</option>
+            <option value="ap-northeast-3">ap-northeast-3 (Osaka)</option>
+            <option value="ca-central-1">ca-central-1 (Central Canada)</option>
+            <option value="af-south-1">af-south-1 (Cape Town)</option>
+            <option value="me-south-1">me-south-1 (Bahrain)</option>
+            <option value="me-central-1">me-central-1 (UAE)</option>
+            <option value="il-central-1">il-central-1 (Tel Aviv)</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="AWS_DEFAULT_REGION">AWS_DEFAULT_REGION</label>
+          <select id="AWS_DEFAULT_REGION">
+            <option value="us-east-1">us-east-1 (N. Virginia)</option>
+            <option value="us-east-2">us-east-2 (Ohio)</option>
+            <option value="us-west-1">us-west-1 (N. California)</option>
+            <option value="us-west-2" selected>us-west-2 (Oregon)</option>
+            <option value="sa-east-1">sa-east-1 (São Paulo)</option>
+            <option value="eu-west-1">eu-west-1 (Ireland)</option>
+            <option value="eu-west-2">eu-west-2 (London)</option>
+            <option value="eu-west-3">eu-west-3 (Paris)</option>
+            <option value="eu-north-1">eu-north-1 (Stockholm)</option>
+            <option value="eu-central-1">eu-central-1 (Frankfurt)</option>
+            <option value="ap-south-1">ap-south-1 (Mumbai)</option>
+            <option value="ap-south-2">ap-south-2 (Hyderabad)</option>
+            <option value="ap-southeast-1">ap-southeast-1 (Singapore)</option>
+            <option value="ap-southeast-2">ap-southeast-2 (Sydney)</option>
+            <option value="ap-southeast-3">ap-southeast-3 (Jakarta)</option>
+            <option value="ap-southeast-4">ap-southeast-4 (Melbourne)</option>
+            <option value="ap-northeast-1">ap-northeast-1 (Tokyo)</option>
+            <option value="ap-northeast-2">ap-northeast-2 (Seoul)</option>
+            <option value="ap-northeast-3">ap-northeast-3 (Osaka)</option>
+            <option value="ca-central-1">ca-central-1 (Central Canada)</option>
+            <option value="af-south-1">af-south-1 (Cape Town)</option>
+            <option value="me-south-1">me-south-1 (Bahrain)</option>
+            <option value="me-central-1">me-central-1 (UAE)</option>
+            <option value="il-central-1">il-central-1 (Tel Aviv)</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="AWS_ACCESS_KEY_ID">AWS_ACCESS_KEY_ID</label>
+          <input id="AWS_ACCESS_KEY_ID" value="" />
+        </div>
+        <div>
+          <label for="AWS_SECRET_ACCESS_KEY">AWS_SECRET_ACCESS_KEY</label>
+          <input id="AWS_SECRET_ACCESS_KEY" value="" />
+        </div>
+        <div>
+          <label for="DEFAULT_FROM_EMAIL">DEFAULT_FROM_EMAIL</label>
+          <input id="DEFAULT_FROM_EMAIL" value="election@example.com" />
+        </div>
+        <div>
+          <label for="DEFAULT_FROM_NAME">DEFAULT_FROM_NAME</label>
+          <input id="DEFAULT_FROM_NAME" value="Helios Voting" />
+        </div>
+        <div>
+          <label for="HELP_EMAIL_ADDRESS">HELP_EMAIL_ADDRESS</label>
+          <input id="HELP_EMAIL_ADDRESS" value="election@example.com" />
+        </div>
+      </div>
+    </section>
+
+    <section class="step" data-step="6">
+      <h2>6. Resultado</h2>
+      <div class="output" id="output"></div>
+      <div class="actions" style="margin-top: 14px; justify-content: flex-start;">
+        <button type="button" id="copy" class="primary">Copiar .env</button>
+        <button type="button" id="download">Baixar .env</button>
+      </div>
+    </section>
+
+  </div>
+
+  <script>
+    const steps = Array.from(document.querySelectorAll('.step'));
+    const progressBar = document.getElementById('progress-bar');
+    const output = document.getElementById('output');
+    const copyBtn = document.getElementById('copy');
+    const downloadBtn = document.getElementById('download');
+
+    let current = 0;
+
+    const byId = (id) => document.getElementById(id);
+    const v = (id) => {
+      const el = byId(id);
+      if (!el) {
+        // fallback for radio groups: call v('GROUP_NAME')
+        const radio = document.querySelector(`input[type=radio][name="${id}"]:checked`);
+        return radio ? (radio.value ?? '') : '';
+      }
+      if (el.type === 'checkbox') return el.checked ? '1' : '0';
+      return el.value ?? '';
+    };
+
+    function computeDatabaseUrl() {
+      const user = encodeURIComponent(v('POSTGRES_USER'));
+      const pass = encodeURIComponent(v('POSTGRES_PASSWORD'));
+      const host = v('POSTGRES_HOST');
+      const port = v('POSTGRES_PORT');
+      const db = v('POSTGRES_DB');
+      // match .env style used in repo (postgres://...)
+      return `postgres://${user}:${pass}@${host}:${port}/${db}`;
+    }
+
+    function computeBrokerUrl() {
+      const user = encodeURIComponent(v('RABBITMQ_DEFAULT_USER'));
+      const pass = encodeURIComponent(v('RABBITMQ_DEFAULT_PASS'));
+      const host = v('RABBITMQ_HOST');
+      const port = v('RABBITMQ_PORT');
+      return `amqp://${user}:${pass}@${host}:${port}//`;
+    }
+
+    function syncComputed() {
+      const dbUrlEl = byId('DATABASE_URL');
+      const brokerEl = byId('CELERY_BROKER_URL');
+      if (dbUrlEl) dbUrlEl.value = computeDatabaseUrl();
+      if (brokerEl) brokerEl.value = computeBrokerUrl();
+    }
+
+    function showStep(index) {
+      steps.forEach((s, i) => s.classList.toggle('active', i === index));
+      const pct = Math.round(((index) / (steps.length - 1)) * 100);
+      progressBar.style.width = pct + '%';
+      document.getElementById('prev').style.visibility = index === 0 ? 'hidden' : 'visible';
+
+      const nextBtn = document.getElementById('next');
+      // When coming from the last input step into the result step, label it clearly.
+      nextBtn.textContent = index === steps.length - 2 ? 'Gerar .env' : 'Avançar';
+      // On the result step, hide the wizard navigation "next" button.
+      nextBtn.style.visibility = index === steps.length - 1 ? 'hidden' : 'visible';
+
+      if (index === steps.length - 1) {
+        syncComputed();
+        output.textContent = buildEnv();
+      }
+    }
+
+    function buildEnv() {
+      syncComputed();
+      return [
+        '# Helios Voting - Docker env',
+        '# Copie este arquivo e ajuste os valores conforme seu ambiente.',
+        '# Dica: não commit suas credenciais reais.',
+        '',
+        '# --- App / Django ---',
+        `DEBUG=${v('DEBUG')}`,
+        `DJANGO_DEBUG_SERVER=${v('DJANGO_DEBUG_SERVER')}`,
+        `SECRET_KEY=${v('SECRET_KEY')}`,
+        `ALLOWED_HOSTS=${v('ALLOWED_HOSTS')}`,
+        `DEVLOGIN_ALLOWED_HOSTS=${v('DEVLOGIN_ALLOWED_HOSTS')}`,
+        `LANGUAGE_CODE=${v('LANGUAGE_CODE')}`,
+        '',
+        '# --- Database ---',
+        `DB_SSL_REQUIRE=${v('DB_SSL_REQUIRE')}`,
+        '',
+        '# Conexão Postgres (separada)',
+        `POSTGRES_DB=${v('POSTGRES_DB')}`,
+        `POSTGRES_USER=${v('POSTGRES_USER')}`,
+        `POSTGRES_PASSWORD=${v('POSTGRES_PASSWORD')}`,
+        `POSTGRES_HOST=${v('POSTGRES_HOST')}`,
+        `POSTGRES_PORT=${v('POSTGRES_PORT')}`,
+        '',
+        '# URL de conexão (montada a partir das variáveis acima)',
+        `DATABASE_URL=${v('DATABASE_URL')}`,
+        '',
+        '# --- Celery / RabbitMQ ---',
+        '# Credenciais RabbitMQ (separadas)',
+        `RABBITMQ_DEFAULT_USER=${v('RABBITMQ_DEFAULT_USER')}`,
+        `RABBITMQ_DEFAULT_PASS=${v('RABBITMQ_DEFAULT_PASS')}`,
+        `RABBITMQ_HOST=${v('RABBITMQ_HOST')}`,
+        `RABBITMQ_PORT=${v('RABBITMQ_PORT')}`,
+        '',
+        '# URL do broker (montada a partir das variáveis acima)',
+        `CELERY_BROKER_URL=${v('CELERY_BROKER_URL')}`,
+        `START_CELERY=${v('START_CELERY')}`,
+        '',
+        '# --- Site / URLs ---',
+        `URL_HOST=${v('URL_HOST')}`,
+        `SECURE_URL_HOST=${v('SECURE_URL_HOST')}`,
+        '',
+        '# --- Helios permissions ---',
+        `HELIOS_ADMIN_ONLY=${v('HELIOS_ADMIN_ONLY')}`,
+        '',
+        '# Tell Django it\'s behind HTTPS (nginx) and trust this origin for CSRF',
+        `SSL=${v('SSL')}`,
+        `CSRF_TRUSTED_ORIGINS=${v('CSRF_TRUSTED_ORIGINS')}`,
+        '',
+        '# --- Email (AWS SES) ---',
+        `EMAIL_USE_AWS=${v('EMAIL_USE_AWS')}`,
+        `AWS_REGION=${v('AWS_REGION')}`,
+        `AWS_DEFAULT_REGION=${v('AWS_DEFAULT_REGION')}`,
+        '',
+        '# Credenciais IAM com permissão para SES (ses:SendEmail / ses:SendRawEmail)',
+        `AWS_ACCESS_KEY_ID=${v('AWS_ACCESS_KEY_ID')}`,
+        `AWS_SECRET_ACCESS_KEY=${v('AWS_SECRET_ACCESS_KEY')}`,
+        '',
+        '# Remetente (precisa estar verificado no SES: email ou domínio)',
+        `DEFAULT_FROM_EMAIL=${v('DEFAULT_FROM_EMAIL')}`,
+        `DEFAULT_FROM_NAME=${v('DEFAULT_FROM_NAME')}`,
+        `HELP_EMAIL_ADDRESS=${v('HELP_EMAIL_ADDRESS')}`,
+      ].join('\n');
+    }
+
+    function genKey(len = 32) {
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+      let out = '';
+      for (let i = 0; i < len; i++) out += chars.charAt(Math.floor(Math.random() * chars.length));
+      return out;
+    }
+
+    document.querySelectorAll('[data-gen]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-gen');
+        const el = byId(id);
+        if (el) el.value = genKey(id === 'SECRET_KEY' ? 32 : 16);
+        syncComputed();
+        if (current === steps.length - 1) output.textContent = buildEnv();
+      });
+    });
+
+    // keep computed URLs in sync while typing
+    const syncOn = [
+      'POSTGRES_DB','POSTGRES_USER','POSTGRES_PASSWORD','POSTGRES_HOST','POSTGRES_PORT',
+      'RABBITMQ_DEFAULT_USER','RABBITMQ_DEFAULT_PASS','RABBITMQ_HOST','RABBITMQ_PORT'
+    ];
+    syncOn.forEach(id => {
+      const el = byId(id);
+      el?.addEventListener('input', () => {
+        syncComputed();
+        if (current === steps.length - 1) output.textContent = buildEnv();
+      });
+    });
+
+    document.getElementById('next').addEventListener('click', () => {
+      if (current < steps.length - 1) {
+        current += 1;
+        showStep(current);
+      }
+    });
+
+    document.getElementById('prev').addEventListener('click', () => {
+      if (current > 0) {
+        current -= 1;
+        showStep(current);
+      }
+    });
+
+    // live refresh on any input when on last step
+    document.querySelectorAll('input, select').forEach(el => {
+      el.addEventListener('input', () => {
+        if (current === steps.length - 1) output.textContent = buildEnv();
+      });
+      el.addEventListener('change', () => {
+        if (current === steps.length - 1) output.textContent = buildEnv();
+      });
+    });
+
+    copyBtn?.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(output.textContent);
+        copyBtn.textContent = 'Copiado!';
+        setTimeout(() => (copyBtn.textContent = 'Copiar .env'), 1200);
+      } catch {
+        copyBtn.textContent = 'Falha ao copiar';
+        setTimeout(() => (copyBtn.textContent = 'Copiar .env'), 1200);
+      }
+    });
+
+    downloadBtn?.addEventListener('click', () => {
+      try {
+        const text = output.textContent || buildEnv();
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = '.env';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        // ignore
+      }
+    });
+
+    syncComputed();
+    showStep(current);
+  </script>
+</body>
+</html>
