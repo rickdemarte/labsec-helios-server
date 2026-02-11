@@ -3,9 +3,16 @@ deploy-latest.sh
 .DS_Store
 *~
 media/*
-venv
-celery*.log
-*.pid
-*.mo
+certs/*
+.venv
+venv*
+celerybeat-*
 env.sh
+
+# Docker / env
+.env
+.env.*
+!.env.example
+
 .cache
+.idea/

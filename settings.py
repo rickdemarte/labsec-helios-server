@@ -1,43 +1,32 @@
-# -*- coding: utf-8 -*-
-import ldap
-import os, json
 
-from django.utils.translation import ugettext_lazy as _
-
-from django_auth_ldap.config import LDAPSearch, GroupOfNamesType
 # a massive hack to see if we're testing, in which case we use different settings
 import sys
+
+import json
+import os
+
+import ldap
+from django_auth_ldap.config import LDAPSearch
+
 TESTING = 'test' in sys.argv
 
 # go through environment variables and override them
 def get_from_env(var, default):
-    if not TESTING and os.environ.has_key(var):
+    if not TESTING and var in os.environ:
         return os.environ[var]
     else:
         return default
 
 DEBUG = (get_from_env('DEBUG', '1') == '1')
-TEMPLATE_DEBUG = DEBUG
-
-#If the Host header (or X-Forwarded-Host if USE_X_FORWARDED_HOST is enabled) does not match any value in this list, the django.http.HttpRequest.get_host() method will raise SuspiciousOperation.
-#When DEBUG is True or when running tests, host validation is disabled; any host will be accepted. Thus it’s usually only necessary to set it in production.
-#This validation only applies via get_host(); if your code accesses the Host header directly from request.META you are bypassing this security protection.
-#More info: https://docs.djangoproject.com/en/1.7/ref/settings/#allowed-hosts
-
-# set a value for production environment, alongside with debug set to false
-ALLOWED_HOSTS = get_from_env('ALLOWED_HOSTS', 'localhost').split(",")
-
-# Make this unique, and don't share it with anybody.
-SECRET_KEY = get_from_env('SECRET_KEY', 'replaceme')
-ROOT_URLCONF = 'urls'
-
-ROOT_PATH = os.path.dirname(__file__)
 
 # add admins of the form: 
 #    ('Ben Adida', 'ben@adida.net'),
 # if you want to be emailed about errors.
-ADMINS = (
-)
+admin_email = get_from_env('ADMIN_EMAIL', None)
+if admin_email:
+    ADMINS = [(get_from_env('ADMIN_NAME', ''), admin_email)]
+else:
+    ADMINS = []
 
 MANAGERS = ADMINS
 
@@ -54,43 +43,47 @@ SHOW_USER_INFO = (get_from_env('SHOW_USER_INFO', '1') == '1')
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql_psycopg2',
-        'NAME': 'helios'
-    }
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'helios',
+        'CONN_MAX_AGE': 600,
+    },
 }
 
-SOUTH_DATABASE_ADAPTERS = {'default':'south.db.postgresql_psycopg2'}
-
 # override if we have an env variable
+# NOTE: upstream default forced SSL when DATABASE_URL is set, which breaks local
+# docker Postgres unless SSL is configured. Control this with DB_SSL_REQUIRE.
 if get_from_env('DATABASE_URL', None):
     import dj_database_url
-    DATABASES['default'] =  dj_database_url.config()
-    DATABASES['default']['ENGINE'] = 'django.db.backends.postgresql_psycopg2'
-    DATABASES['default']['CONN_MAX_AGE'] = 600
+    ssl_require = (get_from_env('DB_SSL_REQUIRE', '1') == '1')
+    DATABASES['default'] = dj_database_url.config(conn_max_age=600, ssl_require=ssl_require)
+    DATABASES['default']['ENGINE'] = 'django.db.backends.postgresql'
 
-    # require SSL
-    DATABASES['default']['OPTIONS'] = {'sslmode': 'require'}
+# explicitly set the default auto-created primary field to silence warning models.W042
+DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
 
 # Local time zone for this installation. Choices can be found here:
 # http://en.wikipedia.org/wiki/List_of_tz_zones_by_name
 # although not all choices may be available on all operating systems.
 # If running in a Windows environment this must be set to the same as your
 # system time zone.
-TIME_ZONE = 'America/Sao_Paulo'
-LANGUAGE_CODE = 'pt-br'
+TIME_ZONE = 'America/Los_Angeles'
+
+USE_TZ = False
+
+# Language code for this installation. All choices can be found here:
+# http://www.i18nguy.com/unicode/language-identifiers.html
+LANGUAGE_CODE = get_from_env('LANGUAGE_CODE', 'pt-br')
+
+LANGUAGES = [
+    ('en', 'English'),
+    ('pt-br', 'Português (Brasil)'),
+]
+
 SITE_ID = 1
+
+# If you set this to False, Django will make some optimizations so as not
+# to load the internationalization machinery.
 USE_I18N = True
-USE_TZ = True
-
-LANGUAGES = (
-    ('en', _('English')),
-    ('pt-br', _('Brazilian Portuguese')),
-)
-
-LOCALE_PATHS = (
-    ROOT_PATH + '/locale',
-)
-
 
 # Absolute path to the directory that holds media.
 # Example: "/home/media/media.lawrence.com/"
@@ -106,36 +99,37 @@ MEDIA_URL = ''
 # Examples: "http://foo.com/media/", "/media/".
 STATIC_URL = '/media/'
 
-STATIC_ROOT = ROOT_PATH + '/sitestatic'
+# Make this unique, and don't share it with anybody.
+SECRET_KEY = get_from_env('SECRET_KEY', 'replaceme')
 
-STATICFILES_DIRS = (
-    ROOT_PATH + '/heliosbooth',
-    ROOT_PATH + '/heliosverifier',
-    ROOT_PATH + '/helios_auth/media',
-    ROOT_PATH + '/helios/media',
-    ROOT_PATH + '/server_ui/media',
-    ROOT_PATH + '/heliosinstitution/media/',
-)
-
+# Secret key for HMAC confirmation codes (separate from Django SECRET_KEY)
+EMAIL_OPTOUT_SECRET = get_from_env('EMAIL_OPTOUT_SECRET', 'replace-with-secure-random-key')
 
 # If debug is set to false and ALLOWED_HOSTS is not declared, django raises  "CommandError: You must set settings.ALLOWED_HOSTS if DEBUG is False."
 # If in production, you got a bad request (400) error
 #More info: https://docs.djangoproject.com/en/1.7/ref/settings/#allowed-hosts (same for 1.6)
 
+ALLOWED_HOSTS = get_from_env('ALLOWED_HOSTS', 'localhost').split(",")
 
 # Secure Stuff
-if (get_from_env('SSL', '0') == '1'):
+if get_from_env('SSL', '0') == '1':
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
 
-    # tuned for Heroku
+    # behind reverse proxy (nginx)
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# CSRF trusted origins (needed when behind HTTPS proxy)
+_csrf_trusted = [o.strip() for o in get_from_env('CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()]
+if _csrf_trusted:
+    CSRF_TRUSTED_ORIGINS = _csrf_trusted
 
 SESSION_COOKIE_HTTPONLY = True
 
 # let's go with one year because that's the way to do it now
 STS = False
-if (get_from_env('HSTS', '0') == '1'):
+if get_from_env('HSTS', '0') == '1':
     STS = True
     # we're using our own custom middleware now
     # SECURE_HSTS_SECONDS = 31536000
@@ -145,56 +139,112 @@ if (get_from_env('HSTS', '0') == '1'):
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 
-# List of callables that know how to import templates from various sources.
-TEMPLATE_LOADERS = (
-    'django.template.loaders.filesystem.Loader',
-    'django.template.loaders.app_directories.Loader'
-)
+# Content Security Policy Configuration (django-csp)
+# https://django-csp.readthedocs.io/
+#
+# 'unsafe-inline' and 'unsafe-eval' are required due to legacy inline scripts,
+# onclick handlers, and jQuery JSON eval usage. Future improvement: use nonces.
 
-MIDDLEWARE_CLASSES = (
-    # make all things SSL
-    #'sslify.middleware.SSLifyMiddleware',
+CSP_DEFAULT_SRC = ("'self'",)
+CSP_SCRIPT_SRC = ("'self'", "'unsafe-inline'", "'unsafe-eval'")
+CSP_STYLE_SRC = ("'self'", "'unsafe-inline'")
+CSP_IMG_SRC = ("'self'", "data:")
+CSP_FONT_SRC = ("'self'",)
+CSP_CONNECT_SRC = ("'self'",)
+CSP_WORKER_SRC = ("'self'", "blob:")
+CSP_FORM_ACTION = ("'self'",)
+CSP_FRAME_ANCESTORS = ("'self'",)
+CSP_BASE_URI = ("'self'",)
+CSP_OBJECT_SRC = ("'none'",)
 
+# Set CSP_REPORT_ONLY=1 to test without enforcing
+if get_from_env('CSP_REPORT_ONLY', '0') == '1':
+    CSP_REPORT_ONLY = True
+else:
+    CSP_REPORT_ONLY = False
+
+# Optional: URI to receive CSP violation reports
+_csp_report_uri = get_from_env('CSP_REPORT_URI', None)
+if _csp_report_uri:
+    CSP_REPORT_URI = _csp_report_uri
+
+SILENCED_SYSTEM_CHECKS = ['urls.W002']
+
+MIDDLEWARE = [
     # secure a bunch of things
-    'djangosecure.middleware.SecurityMiddleware',
+    'django.middleware.security.SecurityMiddleware',
     'helios.security.HSTSMiddleware',
+    'csp.middleware.CSPMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # 'django.middleware.csrf.CsrfViewMiddleware',
 
-    'django.middleware.common.CommonMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.locale.LocaleMiddleware',
+    'django.middleware.common.CommonMiddleware',
+
     'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware'
+    'django.contrib.messages.middleware.MessageMiddleware',
+]
 
-   # 'flatpages_i18n.middleware.FlatpageFallbackMiddleware'
-)
+ROOT_URLCONF = 'urls'
 
+ROOT_PATH = os.path.dirname(__file__)
 
-TEMPLATE_DIRS = (
-    ROOT_PATH,
-    os.path.join(ROOT_PATH, 'templates')
-)
+# i18n
+LOCALE_PATHS = [
+    os.path.join(ROOT_PATH, 'locale'),
+]
+
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'APP_DIRS': True,
+        'DIRS': [
+            ROOT_PATH,
+            os.path.join(ROOT_PATH, 'templates'),
+            # os.path.join(ROOT_PATH, 'helios/templates'),  # covered by APP_DIRS:True
+            # os.path.join(ROOT_PATH, 'helios_auth/templates'),  # covered by APP_DIRS:True
+            # os.path.join(ROOT_PATH, 'server_ui/templates'),  # covered by APP_DIRS:True
+        ],
+        'OPTIONS': {
+            'debug': DEBUG,
+            'context_processors': [
+                'django.template.context_processors.debug',
+                'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+            ],
+        }
+    },
+]
 
 INSTALLED_APPS = (
+    'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
-    'djangosecure',
     'django.contrib.sessions',
-    'django.contrib.sites',
-    'django.contrib.staticfiles',
     'django.contrib.messages',
-    'django.contrib.admin',
-    ## needed for queues
-    'djcelery',
-    'kombu.transport.django',
-    ## in Django 1.7 we now use built-in migrations, no more south
-    ## 'south',
+    'django.contrib.staticfiles',
+    'django.contrib.sites',
+    'anymail',
     ## HELIOS stuff
     'helios_auth',
     'helios',
     'server_ui',
-    'helioslog',
-    'heliosinstitution',
 )
+
+# Email backend configuration
+# In development mode, set EMAIL_USE_CONSOLE=1 to print emails to stdout
+if DEBUG and get_from_env('EMAIL_USE_CONSOLE', '0') == '1':
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+ANYMAIL = {
+    "MAILGUN_API_KEY": get_from_env('MAILGUN_API_KEY', None),
+}
+
+# Mailgun overrides console backend if configured
+if ANYMAIL["MAILGUN_API_KEY"]:
+    EMAIL_BACKEND = "anymail.backends.mailgun.EmailBackend"
 
 ##
 ## HELIOS
@@ -208,8 +258,8 @@ VOTER_UPLOAD_REL_PATH = "voters/%Y/%m/%d"
 
 
 # Change your email settings
-DEFAULT_FROM_EMAIL = get_from_env('DEFAULT_FROM_EMAIL', 'heliosvoting.pt@gmail.com')
-DEFAULT_FROM_NAME = get_from_env('DEFAULT_FROM_NAME', 'Sistema de Votação Eletrônica')
+DEFAULT_FROM_EMAIL = get_from_env('DEFAULT_FROM_EMAIL', 'ben@adida.net')
+DEFAULT_FROM_NAME = get_from_env('DEFAULT_FROM_NAME', 'Ben for Helios')
 SERVER_EMAIL = '%s <%s>' % (DEFAULT_FROM_NAME, DEFAULT_FROM_EMAIL)
 
 LOGIN_URL = '/auth/'
@@ -225,7 +275,7 @@ URL_HOST = get_from_env("URL_HOST", "http://localhost:8000").rstrip("/")
 SECURE_URL_HOST = get_from_env("SECURE_URL_HOST", URL_HOST).rstrip("/")
 
 # election stuff
-SITE_TITLE = get_from_env('SITE_TITLE', _('IFSC E-Voting System'))
+SITE_TITLE = get_from_env('SITE_TITLE', 'Helios Voting')
 MAIN_LOGO_URL = get_from_env('MAIN_LOGO_URL', '/static/logo.png')
 ALLOW_ELECTION_INFO_URL = (get_from_env('ALLOW_ELECTION_INFO_URL', '0') == '1')
 
@@ -233,27 +283,38 @@ ALLOW_ELECTION_INFO_URL = (get_from_env('ALLOW_ELECTION_INFO_URL', '0') == '1')
 FOOTER_LINKS = json.loads(get_from_env('FOOTER_LINKS', '[]'))
 FOOTER_LOGO_URL = get_from_env('FOOTER_LOGO_URL', None)
 
-WELCOME_MESSAGE = get_from_env('WELCOME_MESSAGE', _('Welcome to IFSC E-Voting System'))
+WELCOME_MESSAGE = get_from_env('WELCOME_MESSAGE', "Esta é a mensagem padrão")
 
-HELP_EMAIL_ADDRESS = get_from_env('HELP_EMAIL_ADDRESS', 'shirlei@gmail.com')
+HELP_EMAIL_ADDRESS = get_from_env('HELP_EMAIL_ADDRESS', 'help@heliosvoting.org')
 
 AUTH_TEMPLATE_BASE = "server_ui/templates/base.html"
 HELIOS_TEMPLATE_BASE = "server_ui/templates/base.html"
-AUTH_TEMPLATE_BASENONAV = "server_ui/templates/basenonav.html"
-HELIOS_TEMPLATE_BASENONAV = "server_ui/templates/basenonav.html"
-HELIOS_ADMIN_ONLY = False
+# If 1, only users with admin_p=True can create elections
+HELIOS_ADMIN_ONLY = (get_from_env('HELIOS_ADMIN_ONLY', '0') == '1')
 HELIOS_VOTERS_UPLOAD = True
 HELIOS_VOTERS_EMAIL = True
 
+# Number of weeks after tallying when voter emails should be disabled
+HELIOS_VOTER_EMAIL_CUTOFF_WEEKS = int(get_from_env('HELIOS_VOTER_EMAIL_CUTOFF_WEEKS', '3'))
+
 # are elections private by default?
-HELIOS_PRIVATE_DEFAULT = True
+HELIOS_PRIVATE_DEFAULT = False
 
 # authentication systems enabled
-#AUTH_ENABLED_AUTH_SYSTEMS = ['password','facebook','twitter', 'google', 'yahoo']
-#AUTH_ENABLED_AUTH_SYSTEMS = get_from_env('AUTH_ENABLED_AUTH_SYSTEMS', 'shibboleth').split(",")
-#AUTH_DEFAULT_AUTH_SYSTEM = get_from_env('AUTH_DEFAULT_AUTH_SYSTEM', 'shibboleth')
-AUTH_ENABLED_AUTH_SYSTEMS = get_from_env('AUTH_ENABLED_AUTH_SYSTEMS', 'ldap').split(",")
-AUTH_DEFAULT_AUTH_SYSTEM = get_from_env('AUTH_DEFAULT_AUTH_SYSTEM', 'ldap')
+# AUTH_ENABLED_SYSTEMS = ['password','facebook', 'google', 'yahoo']
+AUTH_ENABLED_SYSTEMS = get_from_env('AUTH_ENABLED_SYSTEMS',
+                                    get_from_env('AUTH_ENABLED_AUTH_SYSTEMS', 'ldap,password,google,cas')
+                                    ).split(",")
+
+# Devlogin safety: restrict which hosts can use the development login system.
+# Keep it tight in any environment exposed beyond localhost.
+DEVLOGIN_ALLOWED_HOSTS = [h.strip() for h in get_from_env('DEVLOGIN_ALLOWED_HOSTS', 'localhost,127.0.0.1,testserver').split(',') if h.strip()]
+
+# Add development login in debug mode
+if DEBUG:
+    AUTH_ENABLED_SYSTEMS = ['devlogin'] + AUTH_ENABLED_SYSTEMS
+
+AUTH_DEFAULT_SYSTEM = get_from_env('AUTH_DEFAULT_SYSTEM', get_from_env('AUTH_DEFAULT_AUTH_SYSTEM', 'cas'))
 
 # google
 GOOGLE_CLIENT_ID = get_from_env('GOOGLE_CLIENT_ID', '')
@@ -264,18 +325,9 @@ FACEBOOK_APP_ID = get_from_env('FACEBOOK_APP_ID','')
 FACEBOOK_API_KEY = get_from_env('FACEBOOK_API_KEY','')
 FACEBOOK_API_SECRET = get_from_env('FACEBOOK_API_SECRET','')
 
-# twitter
-TWITTER_API_KEY = ''
-TWITTER_API_SECRET = ''
-TWITTER_USER_TO_FOLLOW = 'heliosvoting'
-TWITTER_REASON_TO_FOLLOW = "we can direct-message you when the result has been computed in an election in which you participated"
-
-# the token for Helios to do direct messaging
-TWITTER_DM_TOKEN = {"oauth_token": "", "oauth_token_secret": "", "user_id": "", "screen_name": ""}
-
 # LinkedIn
-LINKEDIN_API_KEY = ''
-LINKEDIN_API_SECRET = ''
+LINKEDIN_CLIENT_ID = get_from_env('LINKEDIN_CLIENT_ID', '')
+LINKEDIN_CLIENT_SECRET = get_from_env('LINKEDIN_CLIENT_SECRET', '')
 
 # CAS (for universities)
 CAS_USERNAME = get_from_env('CAS_USERNAME', "")
@@ -283,9 +335,13 @@ CAS_PASSWORD = get_from_env('CAS_PASSWORD', "")
 CAS_ELIGIBILITY_URL = get_from_env('CAS_ELIGIBILITY_URL', "")
 CAS_ELIGIBILITY_REALM = get_from_env('CAS_ELIGIBILITY_REALM', "")
 
-# Clever
-CLEVER_CLIENT_ID = get_from_env('CLEVER_CLIENT_ID', "")
-CLEVER_CLIENT_SECRET = get_from_env('CLEVER_CLIENT_SECRET', "")
+# GitHub
+GH_CLIENT_ID = get_from_env('GH_CLIENT_ID', '')
+GH_CLIENT_SECRET = get_from_env('GH_CLIENT_SECRET', '')
+
+# Gitlab
+GITLAB_CLIENT_ID = get_from_env('GITLAB_CLIENT_ID', "")
+GITLAB_CLIENT_SECRET = get_from_env('GITLAB_CLIENT_SECRET', "")
 
 # email server
 EMAIL_HOST = get_from_env('EMAIL_HOST', 'localhost')
@@ -297,31 +353,39 @@ EMAIL_USE_TLS = (get_from_env('EMAIL_USE_TLS', '0') == '1')
 # to use AWS Simple Email Service
 # in which case environment should contain
 # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+# Default SES region (SES is region-scoped; can be overridden via env)
+AWS_SES_REGION_NAME = get_from_env('AWS_SES_REGION_NAME', 'us-west-2')
+
 if get_from_env('EMAIL_USE_AWS', '0') == '1':
     EMAIL_BACKEND = 'django_ses.SESBackend'
 
 # set up logging
 import logging
+
 logging.basicConfig(
-    level = logging.DEBUG,
-    format = '%(asctime)s %(levelname)s %(message)s'
+    level=logging.DEBUG if TESTING else logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s'
 )
 
+# set up celery
+CELERY_BROKER_URL = get_from_env('CELERY_BROKER_URL', 'amqp://localhost')
+if TESTING:
+    CELERY_TASK_ALWAYS_EAGER = True
+else:
+    CELERY_TASK_ALWAYS_EAGER = (get_from_env('CELERY_TASK_ALWAYS_EAGER', '0') == '1')
 
-# set up django-celery
-# BROKER_BACKEND = "kombu.transport.DatabaseTransport"
-BROKER_URL = "django://"
-CELERY_RESULT_DBURI = DATABASES['default']
-import djcelery
-djcelery.setup_loader()
+# Rollbar Error Logging
+ROLLBAR_ACCESS_TOKEN = get_from_env('ROLLBAR_ACCESS_TOKEN', None)
+if ROLLBAR_ACCESS_TOKEN:
+  print("setting up rollbar")
+  MIDDLEWARE += ['rollbar.contrib.django.middleware.RollbarNotifierMiddleware',]
+  ROLLBAR = {
+    'access_token': ROLLBAR_ACCESS_TOKEN,
+    'environment': 'development' if DEBUG else 'production',  
+  }
 
-CELERYBEAT_SCHEDULER = 'djcelery.schedulers.DatabaseScheduler'
 
-CELERY_TASK_RESULT_EXPIRES = 5184000 # 60 days
-# for testing
-TEST_RUNNER = 'djcelery.contrib.test_runner.CeleryTestSuiteRunner'
-# this effectively does CELERY_ALWAYS_EAGER = True
-
+# ldap
 # see configuration example at https://pythonhosted.org/django-auth-ldap/example.html
 AUTH_LDAP_SERVER_URI = "ldap://ldap.forumsys.com" # replace by your Ldap URI
 AUTH_LDAP_BIND_DN = "cn=read-only-admin,dc=example,dc=com"
@@ -339,57 +403,3 @@ AUTH_LDAP_USER_ATTR_MAP = {
 AUTH_LDAP_BIND_AS_AUTHENTICATING_USER = True
 
 AUTH_LDAP_ALWAYS_UPDATE_USER = False
-
-# Shibboleth auth settings
-SHIBBOLETH_ATTRIBUTE_MAP = { 
-    #"Shibboleth-givenName": (True, "first_name"),
-    "Shib-inetOrgPerson-cn": (True, "common_name"),
-    "Shib-inetOrgPerson-sn": (True, "last_name"),
-    "Shib-inetOrgPerson-mail": (True, "email"),
-    "Shib-eduPerson-eduPersonPrincipalName": (True, "eppn"),
-    "Shib-brEduPerson-brEduAffiliationType": (True, "affiliation"),
-    "Shib-Identity-Provider": (True, "identity_provider"),
-}
-
-FEDERATION_NAME = "CAFe Expresso"
-
-# To use some manager-specific attributes, like idp address
-USE_ELECTION_MANAGER_ATTRIBUTES = True
-
-ELECTION_MANAGER_ATTRIBUTES = ['Provider']
-
-INSTITUTION_ROLE = ['Institution Admin','Election Admin']
-
-ATTRIBUTES_AUTOMATICALLY_CHECKED = ['brExitDate']
-
-SESSION_EXPIRE_AT_BROWSER_CLOSE = True
-
-USE_EMBEDDED_DS = False
-# end shibboleth auth settings
-# Rollbar Error Logging
-ROLLBAR_ACCESS_TOKEN = get_from_env('ROLLBAR_ACCESS_TOKEN', None)
-if ROLLBAR_ACCESS_TOKEN:
-  print "setting up rollbar"
-  MIDDLEWARE_CLASSES += ('rollbar.contrib.django.middleware.RollbarNotifierMiddleware',)
-  ROLLBAR = {
-    'access_token': ROLLBAR_ACCESS_TOKEN,
-    'environment': 'development' if DEBUG else 'production',  
-  }
-
-FEATURE_ELECTION = False
-
-LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'handlers': {
-        'null': {
-            'class': 'logging.NullHandler',
-        }
-    },
-    'loggers': {
-        'django.security.DisallowedHost': {
-            'handlers' : ['null'],
-            'propagate': False,
-        }
-     }
-}
