@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      # Values come from .env (compose interpolation). Defaults keep dev working out of the box.
+      POSTGRES_DB: ${POSTGRES_DB:-helios}
+      POSTGRES_USER: ${POSTGRES_USER:-helios}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-helios}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      # Values come from .env (compose interpolation). Defaults keep dev working out of the box.
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-helios}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-helios}
+
+  app:
+    build: .
+    depends_on:
+      - db
+      - rabbitmq
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    # Você pode sobrescrever/forçar valores aqui se quiser.
+    # Se não precisar, mantenha comentado ou remova a seção.
+    # environment:
+    #   DEBUG: "1"
+    # NOTE: no bind-mount here so the container uses the built virtualenv (.venv)
+
+volumes:
+  postgres_data:

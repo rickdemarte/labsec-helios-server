@@ -69,7 +69,10 @@ docker compose logs -f --tail=200
 ## 3) NGINX (opcional)
 
 Por padrão, o `docker-compose.yml` expõe **80/443** no host via container `nginx`.
-
+Na pasta há dois arquivos, você pode renomear, copiar, editar, etc.
+ - `docker-compose-nginx.yml` com ** nginx **
+ - `docker-compose-no_nginx.yml` sem ** nginx **
+ 
 ### Quando usar
 
 - Quando você quer um ponto único de entrada (HTTP/HTTPS)

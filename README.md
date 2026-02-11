@@ -72,6 +72,10 @@ docker compose logs -f --tail=200
 ### 3) Acesso
 - Com NGINX: **https://localhost/** (porta 443) e redirect de http→https
 - Sem NGINX: você pode expor a porta do Django (8000) no `docker-compose.yml` e acessar via **http://localhost:8000/**
+Na pasta há dois arquivos, você pode renomear, copiar, editar, etc.
+ - `docker-compose-nginx.yml` com ** nginx **
+ - `docker-compose-no_nginx.yml` sem ** nginx **
+ 
 
 ### 4) Criar usuário admin (Django)
 
@@ -136,6 +140,8 @@ docker compose up -d --build
 ## Estrutura do repositório (pontos de interesse)
 
 - `docker-compose.yml` — orquestração local/ambiente
+- `docker-compose-nginx.yml` com ** nginx **
+- `docker-compose-no_nginx.yml` sem ** nginx **
 - `Dockerfile` / `docker/entrypoint.sh` — build e boot da app
 - `docker/nginx/default.conf` — proxy TLS (quando usar NGINX)
 - `env-wizard.html` — gerador de `.env`
